@@ -1,114 +1,93 @@
-import {
-	Editor,
-	MarkdownView,
-	MarkdownFileInfo,
-	Modal,
-	Notice,
-	Plugin,
-} from 'obsidian';
+import { Plugin } from 'obsidian';
 import {
 	DEFAULT_SETTINGS,
-	MyPluginSettings,
-	SampleSettingTab,
+	EnPracticeSettings,
+	EnPracticeSettingTab,
 } from './settings';
+import {
+	EnglishPracticeView,
+	VIEW_TYPE,
+} from './views/english-practice-view';
 
-// Remember to rename these classes and interfaces!
+export default class EnPracticePlugin extends Plugin {
+	settings!: EnPracticeSettings;
+	settingTab!: EnPracticeSettingTab;
 
-export default class MyPlugin extends Plugin {
-	settings!: MyPluginSettings;
-
-	async onload() {
+	async onload(): Promise<void> {
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (_evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
-
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			},
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (
-				editor: Editor,
-				_ctx: MarkdownView | MarkdownFileInfo,
-			) => {
-				editor.replaceSelection('Sample editor command');
-			},
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-				return false;
-			},
-		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(activeDocument, 'click', (_evt: MouseEvent) => {
-			new Notice('Click');
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(
-			window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000),
+		// 注册右侧面板视图
+		this.registerView(
+			VIEW_TYPE,
+			(leaf) => new EnglishPracticeView(leaf, this),
 		);
+
+		// 注册命令：打开英语练习面板
+		this.addCommand({
+			id: 'open-english-practice',
+			name: '打开英语练习面板',
+			callback: () => {
+				this.activateView().catch(() => {});
+			},
+		});
+
+		// 注册设置页
+		this.settingTab = new EnPracticeSettingTab(this.app, this);
+		this.addSettingTab(this.settingTab);
+
+		// 布局就绪后激活面板
+		this.app.workspace.onLayoutReady(() => {
+			this.activateView().catch(() => {});
+		});
 	}
 
-	onunload() {}
+	onunload(): void {
+		this.app.workspace.getLeavesOfType(VIEW_TYPE).forEach((leaf) => leaf.detach());
+	}
 
-	async loadSettings() {
+	/**
+	 * 激活或创建右侧面板
+	 */
+	async activateView(): Promise<void> {
+		const { workspace } = this.app;
+
+		// 如果面板已存在，直接显示
+		const existing = workspace.getLeavesOfType(VIEW_TYPE);
+		if (existing.length > 0 && existing[0]) {
+			await workspace.revealLeaf(existing[0]);
+			return;
+		}
+
+		// 在右侧创建新面板
+		const leaf = workspace.getRightLeaf(false);
+		if (leaf) {
+			await leaf.setViewState({ type: VIEW_TYPE, active: true });
+			await workspace.revealLeaf(leaf);
+		}
+	}
+
+	async loadSettings(): Promise<void> {
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<MyPluginSettings>,
+			(await this.loadData()) as Partial<EnPracticeSettings>,
 		);
 	}
 
-	async saveSettings() {
+	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.setText('Woah!');
+		this.refreshView();
 	}
 
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
+	/**
+	 * 刷新所有英语练习面板
+	 */
+	refreshView(): void {
+		this.app.workspace.getLeavesOfType(VIEW_TYPE).forEach((leaf) => {
+			const view = leaf.view;
+			if (view instanceof EnglishPracticeView) {
+				view.render();
+			}
+		});
 	}
 }
