@@ -120,7 +120,7 @@ function renderTranslationQuestion(
 	evalArea.empty();
 	evalArea.addClass('en-hidden');
 
-	createActionButton(evalBtnContainer, '📊 一键评估', async () => {
+	createActionButton(evalBtnContainer, '一键评估', async () => {
 		const userTranslation = userInput.value.trim();
 		if (!userTranslation) {
 			new Notice('请输入你的翻译');
