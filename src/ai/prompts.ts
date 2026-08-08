@@ -23,6 +23,7 @@ JSON 示例：
 - components.type 只能取：subject、predicate、object、attribute、adverbial、complement、clause、other
 - clauses 按嵌套层级从 1 开始递增
 - 从句类型如"状语从句"、"定语从句"、"宾语从句"、"主语从句"、"表语从句"、"同位语从句"
+- sentence 字段必须原样保留用户输入（含所有标点符号，不得删减或改写）
 
 输出要求：
 - 只输出一个 JSON 对象，不要 Markdown 代码块

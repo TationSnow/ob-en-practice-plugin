@@ -68,7 +68,7 @@ export function renderGrammarAnalysis(
 				},
 			);
 			streamStatus.addClass('en-hidden');
-			renderGrammarResult(section, result);
+			renderGrammarResult(section, result, sentence);
 		} catch (err) {
 			streamStatus.setText(
 				`请求失败：${err instanceof Error ? err.message : '未知错误'}`,
@@ -93,6 +93,7 @@ export function renderGrammarAnalysis(
 function renderGrammarResult(
 	container: HTMLElement,
 	result: GrammarResult,
+	originalSentence: string,
 ): void {
 	const resultArea = container.querySelector(RESULT_SELECTOR) as HTMLElement;
 	resultArea.empty();
@@ -105,6 +106,7 @@ function renderGrammarResult(
 	);
 	renderHighlightedSentence(
 		sentenceSection,
+		originalSentence || result.sentence,
 		result.components,
 		result.clauses,
 	);

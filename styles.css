@@ -122,6 +122,18 @@
 	overflow-wrap: break-word;
 }
 
+/* ===== 语法标注按句分段 ===== */
+.en-sentence-paragraph {
+	margin: 0 0 var(--size-4-2);
+	line-height: 1.7;
+	word-wrap: break-word;
+	overflow-wrap: break-word;
+}
+
+.en-sentence-paragraph:last-child {
+	margin-bottom: 0;
+}
+
 /* ===== 语法标注颜色 ===== */
 .en-grammar-subject {
 	color: var(--text-accent);

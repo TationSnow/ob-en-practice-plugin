@@ -28,6 +28,7 @@ export default defineConfig(
 					'tests/prompts.test.ts',
 					'tests/structured-output.test.ts',
 					'tests/model.test.ts',
+					'tests/sentence-utils.test.ts',
 				],
 				},
 				tsconfigRootDir: import.meta.dirname,

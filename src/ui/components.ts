@@ -1,4 +1,5 @@
 import type { ComponentType } from '../types';
+import { findComponentSpan, splitSentences } from '../utils/sentence';
 
 /** 成分类型对应的 CSS 类名 */
 export const COMPONENT_CSS_CLASS: Record<ComponentType, string> = {
@@ -100,29 +101,96 @@ export function createResultSection(
 /**
  * 渲染带颜色标注的句子
  * @param container 父容器
+ * @param sentence 原句文本（含标点）
  * @param components 成分数组
  * @param clauses 从句信息
  */
 export function renderHighlightedSentence(
 	container: HTMLElement,
+	sentence: string,
 	components: { text: string; type: ComponentType }[],
 	clauses: { text: string; level: number }[],
 ): void {
 	container.empty();
 
-	for (const comp of components) {
-		const span = container.createSpan();
-		span.addClass(COMPONENT_CSS_CLASS[comp.type]);
-		span.setText(comp.text);
+	// 成分数组按原句顺序全局消费，避免成分跨句时重复或错位
+	let componentIndex = 0;
+	for (const sentenceText of splitSentences(sentence)) {
+		const paragraph = container.createDiv('en-sentence-paragraph');
+		componentIndex = renderSentenceSegment(
+			paragraph,
+			sentenceText,
+			components,
+			clauses,
+			componentIndex,
+		);
+	}
+}
 
-		// 如果该成分是某个从句的一部分，添加角标
-		const relatedClause = clauses.find((c) => comp.text.includes(c.text));
-		if (relatedClause && relatedClause.level > 0) {
-			const sup = span.createEl('sup');
-			sup.setText(String(relatedClause.level));
-		}
+/**
+ * 渲染单个句子段落：以原句为底稿，把能匹配到的成分高亮，其余文本（标点等）原样保留。
+ * @param container 段落容器
+ * @param sentenceText 单句文本
+ * @param components 全部成分
+ * @param clauses 从句信息
+ * @param startComponentIndex 本段开始消费的成分下标
+ * @returns 本段结束后下一个未消费的成分下标
+ */
+function renderSentenceSegment(
+	container: HTMLElement,
+	sentenceText: string,
+	components: { text: string; type: ComponentType }[],
+	clauses: { text: string; level: number }[],
+	startComponentIndex: number,
+): number {
+	let componentIndex = startComponentIndex;
+	let cursor = 0;
 
-		container.append(' ');
+	while (componentIndex < components.length) {
+		const component = components[componentIndex];
+		if (!component) break;
+		const match = findComponentSpan(sentenceText, component.text, cursor);
+		if (!match) break;
+
+		appendPlainText(container, sentenceText.slice(cursor, match.start));
+		appendComponentSpan(
+			container,
+			sentenceText.slice(match.start, match.end),
+			component,
+			clauses,
+		);
+		cursor = match.end;
+		componentIndex += 1;
+	}
+
+	// 句尾标点等未落入任何成分的文本原样保留
+	appendPlainText(container, sentenceText.slice(cursor));
+	return componentIndex;
+}
+
+/** 追加普通文本（标点、空白等非成分内容） */
+function appendPlainText(container: HTMLElement, text: string): void {
+	if (!text) return;
+	const span = container.createSpan();
+	span.setText(text);
+}
+
+/** 追加带成分样式与从句角标的文本 */
+function appendComponentSpan(
+	container: HTMLElement,
+	text: string,
+	component: { text: string; type: ComponentType },
+	clauses: { text: string; level: number }[],
+): void {
+	const span = container.createSpan();
+	span.addClass(COMPONENT_CSS_CLASS[component.type]);
+	span.setText(text);
+
+	// 如果该成分是某个从句的一部分，添加角标
+	const relatedClause = clauses.find((c) => component.text.includes(c.text));
+	if (relatedClause && relatedClause.level > 0) {
+		const sup = span.createEl('sup');
+		sup.setText(String(relatedClause.level));
 	}
 }
 
