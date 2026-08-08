@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	buildRenderItems,
 	findClauseRanges,
 	findPredicateVerbRange,
 } from '../src/utils/grammar-highlight';
@@ -31,6 +32,35 @@ describe('findClauseRanges', () => {
 				{ text: 'The cat sat on the mat.', level: 0 },
 			]),
 		).toEqual([]);
+	});
+});
+
+describe('buildRenderItems', () => {
+	it('应合并子成分与从句，且同一位置时从句优先', () => {
+		const text = 'that language imprisons the mind';
+		const items = buildRenderItems(
+			text,
+			[
+				{ text: 'language', type: 'subject' },
+				{ text: 'imprisons', type: 'predicate' },
+				{ text: 'the mind', type: 'object' },
+			],
+			[{ text, level: 1 }],
+		);
+
+		expect(items[0]).toMatchObject({
+			kind: 'clause',
+			start: 0,
+			end: text.length,
+			level: 1,
+		});
+		expect(
+			items.some(
+				(item) =>
+					item.kind === 'component' &&
+					item.component?.type === 'subject',
+			),
+		).toBe(true);
 	});
 });
 

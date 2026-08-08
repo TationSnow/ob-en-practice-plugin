@@ -71,6 +71,40 @@ describe('validateGrammarResult', () => {
 		);
 	});
 
+	it('嵌套子成分包含在父成分内时应通过校验', () => {
+		const result: GrammarResult = {
+			...VALID_RESULT,
+			components: [
+				{
+					text: 'true loyalty',
+					type: 'object',
+					children: [
+						{ text: 'loyalty', type: 'other' },
+					],
+				},
+			],
+		};
+		expect(validateGrammarResult(result, SENTENCE)).toEqual([]);
+	});
+
+	it('子成分超出父成分范围时应被拒绝', () => {
+		const result: GrammarResult = {
+			...VALID_RESULT,
+			components: [
+				{
+					text: 'true loyalty',
+					type: 'object',
+					children: [
+						{ text: 'A friend', type: 'subject' },
+					],
+				},
+			],
+		};
+		expect(validateGrammarResult(result, SENTENCE)).toContain(
+			'子成分未包含在父成分中：A friend',
+		);
+	});
+
 	it('缺少 level 0 主句时应被拒绝', () => {
 		const result: GrammarResult = {
 			...VALID_RESULT,

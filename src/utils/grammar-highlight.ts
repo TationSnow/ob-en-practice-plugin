@@ -1,3 +1,4 @@
+import type { SentenceComponent } from '../types';
 import { findComponentSpan } from './sentence';
 
 /** 从句在文本中的匹配区间 */
@@ -11,6 +12,15 @@ export interface ClauseRange {
 export interface PredicateVerbRange {
 	start: number;
 	end: number;
+}
+
+/** 嵌套渲染中的子项：从句标记或子成分 */
+export interface RenderItem {
+	kind: 'clause' | 'component' | 'verb';
+	start: number;
+	end: number;
+	level: number;
+	component: SentenceComponent | null;
 }
 
 /** 常见非谓语核心词，用于从谓语短语中启发式定位动词 */
@@ -124,5 +134,57 @@ export function findPredicateVerbRange(
 	return (
 		parsePredicateVerbFromDetails(text, details) ??
 		findPredicateVerbHeuristic(text)
+	);
+}
+
+/**
+ * 将子成分和从句统一为渲染区间。
+ * 同一位置时从句优先（红色括号在外层），保证嵌套层级正确。
+ * @param text 当前渲染文本
+ * @param children 子成分列表
+ * @param clauses 从句信息
+ * @returns 排序后的渲染区间
+ */
+export function buildRenderItems(
+	text: string,
+	children: SentenceComponent[],
+	clauses: { text: string; level: number }[],
+): RenderItem[] {
+	const items: RenderItem[] = [];
+	for (const child of children) {
+		const span = findComponentSpan(text, child.text, 0);
+		if (span) {
+			items.push({
+				kind: 'component',
+				start: span.start,
+				end: span.end,
+				level: 0,
+				component: child,
+			});
+		}
+	}
+	for (const range of findClauseRanges(text, clauses)) {
+		items.push({
+			kind: 'clause',
+			start: range.start,
+			end: range.end,
+			level: range.level,
+			component: null,
+		});
+	}
+	return sortRenderItems(items);
+}
+
+/**
+ * 排序渲染区间：起点靠前优先，同起点时外层区间优先，从句标记优先。
+ * @param items 渲染区间
+ * @returns 排序后的渲染区间
+ */
+export function sortRenderItems(items: RenderItem[]): RenderItem[] {
+	return [...items].sort(
+		(a, b) =>
+			a.start - b.start ||
+			b.end - a.end ||
+			(a.kind === 'clause' ? -1 : 1) - (b.kind === 'clause' ? -1 : 1),
 	);
 }

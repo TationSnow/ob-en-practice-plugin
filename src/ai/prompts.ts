@@ -13,6 +13,7 @@ export const GRAMMAR_SYSTEM_PROMPT = `你是一个专业的英语语法分析助
 2. 成分拆解：对每个分句按句法功能拆解为主语、谓语、宾语、表语、补语、状语等。定语、同位语等修饰成分可归入相应名词短语，也可单独标注为 attributive，但都必须保证文本连续完整。
 3. 时态与语态：对每个谓语动词组合，标注时态（如一般现在时、现在完成时、一般将来时）和语态（主动/被动），全部写入 tense 数组，不重复、按出现顺序排列。
 4. 语气与句型：判断整句语气（陈述、祈使、虚拟）和结构类型（简单句、并列句、复合句），并总结结构。
+5. 嵌套成分：如果某个成分本身包含从句（如宾语从句、定语从句、主语从句等），必须在该成分内添加 children 数组，继续标注从句内部的主语、谓语、宾语等子成分；子成分 text 同样必须是原句连续片段，嵌套从句继续递归 children。
 
 JSON 示例：
 {
@@ -60,12 +61,37 @@ JSON 示例：
   "structureSummary": "全句为复合句：主句使用一般将来时，谓语为 will indeed find；主语 A friend 被一级定语从句 who is always honest 修饰，从句使用一般现在时；介词短语 in difficult times 作时间状语。"
 }
 
+嵌套 children 示例（宾语从句内部继续标注）：
+{
+  "text": "that language imprisons the mind",
+  "type": "object",
+  "details": "宾语从句作宾语",
+  "children": [
+    {
+      "text": "language",
+      "type": "subject",
+      "details": "宾语从句的主语"
+    },
+    {
+      "text": "imprisons",
+      "type": "predicate",
+      "details": "谓语动词：imprisons；一般现在时"
+    },
+    {
+      "text": "the mind",
+      "type": "object",
+      "details": "宾语从句的宾语"
+    }
+  ]
+}
+
 字段说明：
 - components.type 只能取：subject、predicate、object、complement、adverbial、attributive、other
 - clauses 必须包含 level 0 的主句，再按嵌套层级列出从句（level 1、2...）；主句 type 为"主句"，从句 type 只能取：定语从句、状语从句、主语从句、宾语从句、表语从句、同位语从句、比较从句
 - clauses 中每个 function 都要说明该从句在句中的作用，如修饰主语、作条件状语等
 - tense 数组必须列出所有出现的时态（含从句内谓语），不可重复，按出现顺序排列
 - predicate 成分的 details 必须以"谓语动词：<原句中的动词>"开头，标注谓语动词核心词（不含助动词、情态动词和状语），供前端紫色高亮使用；谓语成分的 text 仍保持完整连续片段
+- 包含从句的成分必须提供 children，从句内部的主语、谓语、宾语等子成分逐层嵌套；子成分的颜色规则与整句一致（主语蓝色、谓语动词紫色、宾语橙色）
 - sentence 字段必须原样保留用户输入（含所有标点符号，不得删减或改写）
 - 所有 components[].text 和 clauses[].text 都必须是原句中的连续字符片段
 

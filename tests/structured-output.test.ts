@@ -115,6 +115,26 @@ describe('Zod schema 校验', () => {
 			}),
 		).toThrow();
 	});
+
+	it('包含嵌套 children 的语法结果应通过校验', () => {
+		const result = {
+			...VALID_GRAMMAR,
+			components: [
+				{
+					text: 'that language imprisons the mind',
+					type: 'object',
+					details: '宾语从句作宾语',
+					children: [
+						{ text: 'language', type: 'subject' },
+						{ text: 'imprisons', type: 'predicate' },
+						{ text: 'the mind', type: 'object' },
+					],
+				},
+			],
+		};
+
+		expect(grammarSchema.parse(result)).toEqual(result);
+	});
 });
 
 describe('resolveOutputMethods', () => {

@@ -34,18 +34,32 @@ export const SUBORDINATE_CLAUSE_TYPES = CLAUSE_TYPES.filter(
 /** 从句类型 */
 export type ClauseType = (typeof CLAUSE_TYPES)[number];
 
-/** 语法分析中的单个成分 schema */
-const sentenceComponentSchema = z.object({
-	text: z
-		.string()
-		.min(1)
-		.describe('成分的完整文本，必须是原句中的连续字符片段，且包含全部修饰语'),
-	type: z.enum(COMPONENT_TYPES).describe('成分类型'),
-	details: z
-		.string()
-		.optional()
-		.describe('可选，对该成分内部结构或修饰关系的简要说明'),
-}).strict();
+/** 语法分析中的单个成分结构（递归：children 内可继续嵌套） */
+export interface SentenceComponent {
+	text: string;
+	type: ComponentType;
+	details?: string;
+	children?: SentenceComponent[];
+}
+
+/** 语法分析中的单个成分 schema（递归定义，children 允许嵌套） */
+const sentenceComponentSchema: z.ZodType<SentenceComponent> = z.lazy(() =>
+	z.object({
+		text: z
+			.string()
+			.min(1)
+			.describe('成分的完整文本，必须是原句中的连续字符片段，且包含全部修饰语'),
+		type: z.enum(COMPONENT_TYPES).describe('成分类型'),
+		details: z
+			.string()
+			.optional()
+			.describe('可选，对该成分内部结构或修饰关系的简要说明'),
+		children: z
+			.array(sentenceComponentSchema)
+			.optional()
+			.describe('可选，从句内部继续标注的主语、谓语、宾语等子成分，逐层嵌套'),
+	}).strict(),
+);
 
 /** 从句信息 schema */
 const clauseInfoSchema = z.object({
@@ -79,7 +93,6 @@ export const grammarSchema = z.object({
 	structureSummary: z.string().describe('结构概括'),
 }).strict();
 
-export type SentenceComponent = z.infer<typeof sentenceComponentSchema>;
 export type ClauseInfo = z.infer<typeof clauseInfoSchema>;
 export type GrammarResult = z.infer<typeof grammarSchema>;
 

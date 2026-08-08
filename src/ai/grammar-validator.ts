@@ -26,9 +26,12 @@ export function validateGrammarResult(
 		issues.push('components 不能为空');
 	}
 	for (const component of result.components) {
-		if (!findComponentSpan(normalizedInput, component.text, 0)) {
-			issues.push(`成分未在原句中找到连续片段：${component.text}`);
-		}
+		validateComponentTree(
+			component,
+			component.text,
+			normalizedInput,
+			issues,
+		);
 	}
 
 	// 分句结构必须包含且仅包含一个 level 0 主句
@@ -62,4 +65,29 @@ export function validateGrammarResult(
 	}
 
 	return issues;
+}
+
+/**
+ * 递归校验成分及其嵌套子成分：
+ * 子成分必须包含在父成分中，且都是原句的连续片段。
+ * @param component 当前成分
+ * @param parentText 父成分文本（用于校验子成分是否包含在内）
+ * @param sentence 原句
+ * @param issues 问题列表
+ */
+function validateComponentTree(
+	component: GrammarResult['components'][number],
+	parentText: string,
+	sentence: string,
+	issues: string[],
+): void {
+	if (!findComponentSpan(sentence, component.text, 0)) {
+		issues.push(`成分未在原句中找到连续片段：${component.text}`);
+	}
+	for (const child of component.children ?? []) {
+		if (!findComponentSpan(parentText, child.text, 0)) {
+			issues.push(`子成分未包含在父成分中：${child.text}`);
+		}
+		validateComponentTree(child, component.text, sentence, issues);
+	}
 }

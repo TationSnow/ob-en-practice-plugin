@@ -33,6 +33,7 @@ export default defineConfig(
 					'tests/grammar-validator.test.ts',
 					'tests/panel-events.test.ts',
 					'tests/grammar-highlight.test.ts',
+					'tests/grammar-render.test.ts',
 				],
 				},
 				tsconfigRootDir: import.meta.dirname,
