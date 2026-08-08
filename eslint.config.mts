@@ -21,6 +21,7 @@ export default defineConfig(
 			},
 			parserOptions: {
 				projectService: {
+					maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 20,
 					allowDefaultProject: [
 					'eslint.config.mts',
 					'manifest.json',
@@ -31,6 +32,7 @@ export default defineConfig(
 					'tests/sentence-utils.test.ts',
 					'tests/grammar-validator.test.ts',
 					'tests/panel-events.test.ts',
+					'tests/grammar-highlight.test.ts',
 				],
 				},
 				tsconfigRootDir: import.meta.dirname,

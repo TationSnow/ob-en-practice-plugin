@@ -1,4 +1,8 @@
 import type { ComponentType } from '../types';
+import {
+	findClauseRanges,
+	findPredicateVerbRange,
+} from '../utils/grammar-highlight';
 import { findComponentSpan, splitSentences } from '../utils/sentence';
 
 /** 成分类型对应的 CSS 类名 */
@@ -106,7 +110,7 @@ export function createResultSection(
 export function renderHighlightedSentence(
 	container: HTMLElement,
 	sentence: string,
-	components: { text: string; type: ComponentType }[],
+	components: { text: string; type: ComponentType; details?: string }[],
 	clauses: { text: string; level: number }[],
 ): void {
 	container.empty();
@@ -137,7 +141,7 @@ export function renderHighlightedSentence(
 function renderSentenceSegment(
 	container: HTMLElement,
 	sentenceText: string,
-	components: { text: string; type: ComponentType }[],
+	components: { text: string; type: ComponentType; details?: string }[],
 	clauses: { text: string; level: number }[],
 	startComponentIndex: number,
 ): number {
@@ -150,7 +154,11 @@ function renderSentenceSegment(
 		const match = findComponentSpan(sentenceText, component.text, cursor);
 		if (!match) break;
 
-		appendPlainText(container, sentenceText.slice(cursor, match.start));
+		renderTextWithClauses(
+			container,
+			sentenceText.slice(cursor, match.start),
+			clauses,
+		);
 		appendComponentSpan(
 			container,
 			sentenceText.slice(match.start, match.end),
@@ -162,7 +170,7 @@ function renderSentenceSegment(
 	}
 
 	// 句尾标点等未落入任何成分的文本原样保留
-	appendPlainText(container, sentenceText.slice(cursor));
+	renderTextWithClauses(container, sentenceText.slice(cursor), clauses);
 	return componentIndex;
 }
 
@@ -173,24 +181,141 @@ function appendPlainText(container: HTMLElement, text: string): void {
 	span.setText(text);
 }
 
-/** 追加带成分样式与从句角标的文本 */
+/** 追加红色从句括号 */
+function appendClauseBracket(container: HTMLElement, bracket: string): void {
+	const span = container.createSpan();
+	span.addClass('en-clause-bracket');
+	span.setText(bracket);
+}
+
+/** 追加从句层级角标 */
+function appendClauseLevel(container: HTMLElement, level: number): void {
+	if (level <= 0) return;
+	const sup = container.createEl('sup');
+	sup.addClass('en-clause-level');
+	sup.setText(String(level));
+}
+
+/**
+ * 渲染文本，并用红色括号包裹其中的从句。
+ * 支持嵌套从句：按区间栈处理开合括号，保证层级正确。
+ * @param container 父容器
+ * @param text 需要渲染的文本
+ * @param clauses 从句信息
+ */
+function renderTextWithClauses(
+	container: HTMLElement,
+	text: string,
+	clauses: { text: string; level: number }[],
+): void {
+	const ranges = findClauseRanges(text, clauses);
+	if (ranges.length === 0) {
+		appendPlainText(container, text);
+		return;
+	}
+
+	const sorted = [...ranges].sort(
+		(a, b) => a.start - b.start || b.end - a.end,
+	);
+	const stack: number[] = [];
+	let cursor = 0;
+
+	for (let i = 0; i < sorted.length; i += 1) {
+		const range = sorted[i];
+		if (!range) continue;
+
+		// 关闭所有在当前从句开始前已经结束的括号
+		while (stack.length > 0) {
+			const top = sorted[stack[stack.length - 1] ?? 0];
+			if (!top || top.end > range.start) break;
+			appendPlainText(container, text.slice(cursor, top.end));
+			appendClauseBracket(container, ')');
+			appendClauseLevel(container, top.level);
+			cursor = top.end;
+			stack.pop();
+		}
+
+		// 已经输出的区间内的从句（重叠等异常情况）跳过
+		if (range.start < cursor) continue;
+		appendPlainText(container, text.slice(cursor, range.start));
+		appendClauseBracket(container, '(');
+		cursor = range.start;
+		stack.push(i);
+	}
+
+	// 关闭所有剩余括号
+	while (stack.length > 0) {
+		const top = sorted[stack[stack.length - 1] ?? 0];
+		if (!top) break;
+		appendPlainText(container, text.slice(cursor, top.end));
+		appendClauseBracket(container, ')');
+		appendClauseLevel(container, top.level);
+		cursor = top.end;
+		stack.pop();
+	}
+
+	appendPlainText(container, text.slice(cursor));
+}
+
+/**
+ * 渲染谓语成分：只给谓语动词核心词上紫色，
+ * 助动词、情态动词和句中状语等保持白色，避免整串谓语全部紫色。
+ * @param container 父容器
+ * @param text 谓语成分的完整文本
+ * @param details 成分说明（可含“谓语动词：”标记）
+ * @param clauses 从句信息
+ */
+function renderPredicateGroup(
+	container: HTMLElement,
+	text: string,
+	details: string | undefined,
+	clauses: { text: string; level: number }[],
+): void {
+	const verbRange = findPredicateVerbRange(text, details);
+
+	if (!verbRange) {
+		const span = container.createSpan();
+		span.addClass(COMPONENT_CSS_CLASS.predicate);
+		renderTextWithClauses(span, text, clauses);
+		return;
+	}
+
+	// 动词前的助动词、情态动词、状语等按普通文本展示
+	if (verbRange.start > 0) {
+		const prefix = container.createSpan();
+		prefix.addClass(COMPONENT_CSS_CLASS.other);
+		renderTextWithClauses(prefix, text.slice(0, verbRange.start), clauses);
+	}
+
+	// 谓语动词本体使用紫色
+	const verbSpan = container.createSpan();
+	verbSpan.addClass(COMPONENT_CSS_CLASS.predicate);
+	verbSpan.setText(text.slice(verbRange.start, verbRange.end));
+
+	// 动词后的状语、否定词等按普通文本展示
+	if (verbRange.end < text.length) {
+		const suffix = container.createSpan();
+		suffix.addClass(COMPONENT_CSS_CLASS.other);
+		renderTextWithClauses(suffix, text.slice(verbRange.end), clauses);
+	}
+}
+
+/** 追加带成分样式、从句红色括号与层级角标的文本 */
 function appendComponentSpan(
 	container: HTMLElement,
 	text: string,
-	component: { text: string; type: ComponentType },
+	component: { text: string; type: ComponentType; details?: string },
 	clauses: { text: string; level: number }[],
 ): void {
+	// 谓语动词单独处理：只给动词核心上紫色
+	if (component.type === 'predicate') {
+		renderPredicateGroup(container, text, component.details, clauses);
+		return;
+	}
+
 	const span = container.createSpan();
 	span.addClass(COMPONENT_CSS_CLASS[component.type]);
-	span.setText(text);
-
-	// 如果该成分是某个从句的一部分，添加角标
-	const relatedClause = clauses.find((c) => component.text.includes(c.text));
-	if (relatedClause && relatedClause.level > 0) {
-		const sup = span.createEl('sup');
-		sup.addClass('en-clause-level');
-		sup.setText(String(relatedClause.level));
-	}
+	renderTextWithClauses(span, text, clauses);
 }
 
 /**

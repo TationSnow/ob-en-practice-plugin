@@ -170,19 +170,25 @@
 }
 
 .en-grammar-attributive {
-	color: var(--text-muted);
+	color: var(--text-normal);
 }
 
 .en-grammar-adverbial {
-	color: var(--text-faint);
+	color: var(--text-normal);
 }
 
 .en-grammar-complement {
-	color: var(--color-cyan);
+	color: var(--text-normal);
 }
 
 .en-grammar-other {
 	color: var(--text-normal);
+}
+
+/* 从句红色括号 */
+.en-clause-bracket {
+	color: var(--text-error);
+	font-weight: var(--font-bold);
 }
 
 /* 从句层级角标 */

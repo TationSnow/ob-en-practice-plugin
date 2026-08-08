@@ -26,7 +26,7 @@ JSON 示例：
     {
       "text": "will indeed find",
       "type": "predicate",
-      "details": "一般将来时，主动语态；indeed 为句中状语"
+      "details": "谓语动词：find；一般将来时，主动语态；indeed 为句中状语"
     },
     {
       "text": "true loyalty",
@@ -65,6 +65,7 @@ JSON 示例：
 - clauses 必须包含 level 0 的主句，再按嵌套层级列出从句（level 1、2...）；主句 type 为"主句"，从句 type 只能取：定语从句、状语从句、主语从句、宾语从句、表语从句、同位语从句、比较从句
 - clauses 中每个 function 都要说明该从句在句中的作用，如修饰主语、作条件状语等
 - tense 数组必须列出所有出现的时态（含从句内谓语），不可重复，按出现顺序排列
+- predicate 成分的 details 必须以"谓语动词：<原句中的动词>"开头，标注谓语动词核心词（不含助动词、情态动词和状语），供前端紫色高亮使用；谓语成分的 text 仍保持完整连续片段
 - sentence 字段必须原样保留用户输入（含所有标点符号，不得删减或改写）
 - 所有 components[].text 和 clauses[].text 都必须是原句中的连续字符片段
 
