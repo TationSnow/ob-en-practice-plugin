@@ -3,6 +3,7 @@ import { SystemMessage } from '@langchain/core/messages';
 import type { EnPracticeSettings } from '../settings';
 import type { GrammarResult } from '../types';
 import { createModel } from './index';
+import { validateGrammarResult } from './grammar-validator';
 import { GRAMMAR_SYSTEM_PROMPT } from './prompts';
 import { grammarSchema } from './schemas';
 import {
@@ -38,5 +39,13 @@ export async function analyzeGrammar(
 		onToken: settings.streamingEnabled ? options?.onToken : undefined,
 		debug: options?.debug,
 		thinkingEnabled: settings.thinkingEnabled,
+		// 校验成分与分句是否为原句中的连续片段，不满足时自动重试
+		additionalValidation: (result) =>
+			validateGrammarResult(result, sentence),
+		// 重试时把具体校验问题回传给模型，帮助模型针对性修正
+		validationRetryHint: (issues) =>
+			`上次输出未通过语法分析校验，请修正以下问题：${issues.join('；')}。` +
+			'所有 components[].text 和 clauses[].text 必须逐字来自原句，' +
+			'不得改写、省略中间内容或调换语序。',
 	});
 }

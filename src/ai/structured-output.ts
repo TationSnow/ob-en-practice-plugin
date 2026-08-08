@@ -37,6 +37,10 @@ export interface InvokeStructuredOptions<T extends z.ZodType> {
 	debug?: boolean;
 	/** 是否启用思考模式；开启时跳过不兼容的函数调用方法 */
 	thinkingEnabled?: boolean;
+	/** Zod 校验通过后的附加业务校验；返回问题列表，非空视为本次输出无效 */
+	additionalValidation?: (parsed: z.infer<T>) => string[];
+	/** 附加校验失败时生成重试提示的函数；默认使用通用纠错提示 */
+	validationRetryHint?: (issues: string[]) => string;
 }
 
 /** AI 功能函数可接收的流式/调试选项 */
@@ -49,6 +53,36 @@ export type StructuredOutputCallOptions = Pick<
 interface ParsedStructuredResult<T> {
 	raw: BaseMessage;
 	parsed: T | null;
+}
+
+/**
+ * 收集附加业务校验的问题列表。
+ * @param parsed 已通过 Zod 校验的结果
+ * @param validate 附加校验函数
+ * @returns 问题列表；为空表示校验通过
+ */
+function collectValidationIssues<T extends z.ZodType>(
+	parsed: z.infer<T>,
+	validate?: (parsed: z.infer<T>) => string[],
+): string[] {
+	if (!validate) return [];
+	return validate(parsed);
+}
+
+/**
+ * 生成重试提示：附加校验失败时携带具体问题，帮助模型针对性修正。
+ * @param validationRetryHint 自定义提示生成函数
+ * @param issues 校验问题列表
+ * @returns 追加给模型的重试提示
+ */
+function buildRetryHint(
+	validationRetryHint?: (issues: string[]) => string,
+	issues: string[] = [],
+): string {
+	if (validationRetryHint && issues.length > 0) {
+		return validationRetryHint(issues);
+	}
+	return RETRY_HINT;
 }
 
 /**
@@ -262,6 +296,8 @@ export async function invokeStructured<T extends z.ZodType>(
 		onToken,
 		debug,
 		thinkingEnabled,
+		additionalValidation,
+		validationRetryHint,
 	} = options;
 	const maxAttempts = Math.max(
 		0,
@@ -270,6 +306,8 @@ export async function invokeStructured<T extends z.ZodType>(
 	const parser = StructuredOutputParser.fromZodSchema(schema);
 	const methods = resolveOutputMethods(model, thinkingEnabled);
 	const requestId = createRequestId(outputName);
+	// 最近一次附加校验的问题，用于生成下一次重试提示
+	let lastValidationIssues: string[] = [];
 
 	if (debug) {
 		addDebugEntry({
@@ -286,12 +324,16 @@ export async function invokeStructured<T extends z.ZodType>(
 		for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
 			try {
 				const promptValue = await prompt.invoke(variables);
+				const retryHint = buildRetryHint(
+					validationRetryHint,
+					lastValidationIssues,
+				);
 				const messages =
 					attempt === 0
 						? promptValue.messages
 						: [
 								...promptValue.messages,
-								new HumanMessage(RETRY_HINT),
+								new HumanMessage(retryHint),
 							];
 				if (debug) {
 					addDebugEntry({
@@ -321,16 +363,34 @@ export async function invokeStructured<T extends z.ZodType>(
 						});
 					}
 					if (parsed !== null && parsed !== undefined) {
+						const validationIssues = collectValidationIssues(
+							parsed,
+							additionalValidation,
+						);
+						if (validationIssues.length === 0) {
+							lastValidationIssues = [];
+							if (debug) {
+								addDebugEntry({
+									requestId,
+									feature: outputName,
+									phase: 'success',
+									message: '请求成功',
+									detail: formatDebugDetail(parsed),
+								});
+							}
+							return parsed;
+						}
+						lastValidationIssues = validationIssues;
 						if (debug) {
 							addDebugEntry({
 								requestId,
 								feature: outputName,
-								phase: 'success',
-								message: '请求成功',
-								detail: formatDebugDetail(parsed),
+								phase: 'retry',
+								message: '输出未通过附加校验',
+								detail: validationIssues.join('；'),
 							});
 						}
-						return parsed;
+						continue;
 					}
 					if (debug) {
 						addDebugEntry({
@@ -365,16 +425,34 @@ export async function invokeStructured<T extends z.ZodType>(
 					messages,
 				)) as unknown as ParsedStructuredResult<z.infer<T>>;
 				if (result.parsed !== null && result.parsed !== undefined) {
+					const validationIssues = collectValidationIssues(
+						result.parsed,
+						additionalValidation,
+					);
+					if (validationIssues.length === 0) {
+						lastValidationIssues = [];
+						if (debug) {
+							addDebugEntry({
+								requestId,
+								feature: outputName,
+								phase: 'success',
+								message: '请求成功',
+								detail: formatDebugDetail(result.parsed),
+							});
+						}
+						return result.parsed;
+					}
+					lastValidationIssues = validationIssues;
 					if (debug) {
 						addDebugEntry({
 							requestId,
 							feature: outputName,
-							phase: 'success',
-							message: '请求成功',
-							detail: formatDebugDetail(result.parsed),
+							phase: 'retry',
+							message: '输出未通过附加校验',
+							detail: validationIssues.join('；'),
 						});
 					}
-					return result.parsed;
+					continue;
 				}
 				// parsed 为 null 表示格式校验失败，继续按重试次数重试
 				if (debug) {
@@ -436,6 +514,25 @@ export async function invokeStructured<T extends z.ZodType>(
 			try {
 				parsed = await parser.parse(rawText);
 			} catch {
+				parsed = null;
+			}
+		}
+		if (parsed !== null && parsed !== undefined) {
+			const validationIssues = collectValidationIssues(
+				parsed,
+				additionalValidation,
+			);
+			if (validationIssues.length > 0) {
+				lastValidationIssues = validationIssues;
+				if (debug) {
+					addDebugEntry({
+						requestId,
+						feature: outputName,
+						phase: 'retry',
+						message: '兜底输出未通过附加校验',
+						detail: validationIssues.join('；'),
+					});
+				}
 				parsed = null;
 			}
 		}

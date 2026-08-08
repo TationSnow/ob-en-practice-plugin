@@ -12,6 +12,18 @@ describe('splitSentences', () => {
 		]);
 	});
 
+	it('多句语法分析输入应切分为独立句子', () => {
+		const text =
+			'The current trend on the Internet is befriending anyone who requests to be your friend. ' +
+			'However, this new trend may lead to disasters. ' +
+			'It may be popular and trendy to have a network filled with multitude of mutual friends.';
+		expect(splitSentences(text)).toEqual([
+			'The current trend on the Internet is befriending anyone who requests to be your friend.',
+			'However, this new trend may lead to disasters.',
+			'It may be popular and trendy to have a network filled with multitude of mutual friends.',
+		]);
+	});
+
 	it('引号内的问号不参与拆分', () => {
 		expect(splitSentences('You said "?"? Before xxx.')).toEqual([
 			'You said "?"?',

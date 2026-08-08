@@ -26,9 +26,24 @@ const VALID_EVALUATION = {
 
 const VALID_GRAMMAR = {
 	sentence: 'The cat sat on the mat.',
-	components: [{ text: 'The cat', type: 'subject' }],
-	clauses: [],
-	tense: '一般现在时',
+	components: [
+		{ text: 'The cat', type: 'subject' },
+		{ text: 'sat', type: 'predicate' },
+		{
+			text: 'on the mat',
+			type: 'adverbial',
+			details: '介词短语作地点状语',
+		},
+	],
+	clauses: [
+		{
+			text: 'The cat sat on the mat.',
+			level: 0,
+			type: '主句',
+			function: '全句主干',
+		},
+	],
+	tense: ['一般过去时'],
 	voice: '主动语态',
 	mood: '陈述语气',
 	sentenceType: '简单句',
@@ -247,6 +262,65 @@ describe('invokeStructured', () => {
 			expect.anything(),
 			expect.objectContaining({ method: 'jsonMode', includeRaw: true }),
 		);
+	});
+
+	it('附加业务校验失败时按重试次数重试，通过后返回', async () => {
+		const withStructuredOutput = vi.fn().mockReturnValue({
+			invoke: vi
+				.fn()
+				.mockResolvedValueOnce({
+					raw: {},
+					parsed: { ...VALID_EVALUATION, score: 50 },
+				})
+				.mockResolvedValue({ raw: {}, parsed: VALID_EVALUATION }),
+		});
+		const model = createFakeModel({ withStructuredOutput });
+
+		const result = await invokeStructured({
+			model,
+			prompt: TEST_PROMPT,
+			schema: translationEvaluationSchema,
+			outputName: 'translationEvaluation',
+			variables: { input: 'test' },
+			maxRetries: 1,
+			additionalValidation: (parsed) =>
+				parsed.score < 80 ? ['分数低于 80'] : [],
+		});
+
+		expect(result).toEqual(VALID_EVALUATION);
+		expect(withStructuredOutput).toHaveBeenCalledTimes(2);
+	});
+
+	it('附加校验失败后，重试消息包含具体校验问题', async () => {
+		const invoke = vi
+			.fn()
+			.mockResolvedValueOnce({
+				raw: {},
+				parsed: { ...VALID_EVALUATION, score: 50 },
+			})
+			.mockResolvedValue({ raw: {}, parsed: VALID_EVALUATION });
+		const withStructuredOutput = vi.fn().mockReturnValue({ invoke });
+		const model = createFakeModel({ withStructuredOutput });
+
+		const result = await invokeStructured({
+			model,
+			prompt: TEST_PROMPT,
+			schema: translationEvaluationSchema,
+			outputName: 'translationEvaluation',
+			variables: { input: 'test' },
+			maxRetries: 1,
+			additionalValidation: (parsed) =>
+				parsed.score < 80 ? ['分数低于 80'] : [],
+			validationRetryHint: (issues) => `修正：${issues.join('；')}`,
+		});
+
+		expect(result).toEqual(VALID_EVALUATION);
+		const secondCallMessages = invoke.mock.calls[1]?.[0] as Array<{
+			content: unknown;
+		}>;
+		const lastMessage =
+			secondCallMessages?.[secondCallMessages.length - 1];
+		expect(String(lastMessage?.content)).toContain('修正：分数低于 80');
 	});
 
 	it('API 不支持当前方法时自动切换到下一方法', async () => {

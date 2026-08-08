@@ -122,6 +122,25 @@
 	overflow-wrap: break-word;
 }
 
+/* ===== 多句语法分析结果卡片 ===== */
+.en-grammar-result-card {
+	margin-top: var(--size-4-3);
+	padding-top: var(--size-4-3);
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.en-grammar-result-card:first-child {
+	margin-top: 0;
+	padding-top: 0;
+	border-top: none;
+}
+
+.en-result-card-heading {
+	margin: 0 0 var(--size-4-1);
+	font-size: var(--font-ui-medium);
+	color: var(--text-normal);
+}
+
 /* ===== 语法标注按句分段 ===== */
 .en-sentence-paragraph {
 	margin: 0 0 var(--size-4-2);
@@ -150,7 +169,7 @@
 	font-weight: var(--font-semibold);
 }
 
-.en-grammar-attribute {
+.en-grammar-attributive {
 	color: var(--text-muted);
 }
 
@@ -162,19 +181,16 @@
 	color: var(--color-cyan);
 }
 
-.en-grammar-clause {
-	color: var(--text-error);
-}
-
 .en-grammar-other {
 	color: var(--text-normal);
 }
 
-/* 从句角标 */
-.en-grammar-clause sup {
+/* 从句层级角标 */
+.en-clause-level {
 	font-size: 0.7em;
 	color: var(--text-error);
 	vertical-align: super;
+	margin-left: 1px;
 }
 
 /* ===== 信息表格 ===== */
@@ -189,6 +205,8 @@
 	border-bottom: 1px solid var(--background-modifier-border);
 	font-size: var(--font-ui-small);
 	vertical-align: top;
+	overflow-wrap: break-word;
+	word-break: break-word;
 }
 
 .en-info-label {
@@ -196,6 +214,16 @@
 	color: var(--text-muted);
 	width: 30%;
 	white-space: nowrap;
+}
+
+/* 成分明细表 */
+.en-component-type {
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.en-component-details {
+	color: var(--text-normal);
 }
 
 /* ===== 翻译写作 ===== */

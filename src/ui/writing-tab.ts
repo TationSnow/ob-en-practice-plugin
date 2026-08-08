@@ -8,6 +8,7 @@ import {
 	createActionButton,
 	createResultSection,
 } from './components';
+import { onGrammarReference } from './panel-events';
 import { renderDebugPanel } from './debug-panel';
 
 /** 当前题目状态 */
@@ -24,10 +25,12 @@ const EVAL_SELECTOR = '#en-writing-evaluation';
  * 渲染翻译写作模块
  * @param container 父容器
  * @param plugin 插件实例
+ * @param events 面板内共享的事件总线，用于接收语法分析参考句
  */
 export function renderWritingPractice(
 	container: HTMLElement,
 	plugin: EnPracticePlugin,
+	events: EventTarget,
 ): void {
 	const section = createCollapsibleSection(container, '翻译写作');
 	const state: WritingState = { question: null, difficulty: 'cet4' };
@@ -39,6 +42,11 @@ export function renderWritingPractice(
 		attr: { placeholder: '输入参考英语表达（可选）', rows: '2' },
 	});
 	refInput.addClass('en-text-input');
+
+	// 接收语法分析结果作为参考表达
+	onGrammarReference(events, (sentence) => {
+		refInput.value = sentence;
+	});
 
 	// 难度下拉选择
 	const diffContainer = section.createDiv('en-field-row');

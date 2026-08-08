@@ -76,10 +76,13 @@ export class EnglishPracticeView extends ItemView {
 	 * 渲染功能模块
 	 */
 	private renderModules(container: HTMLElement): void {
+		// 面板内共享事件总线，用于语法分析与翻译写作联动
+		const events = new EventTarget();
+
 		// 语法分析模块
-		renderGrammarAnalysis(container, this.plugin);
+		renderGrammarAnalysis(container, this.plugin, events);
 
 		// 翻译写作模块
-		renderWritingPractice(container, this.plugin);
+		renderWritingPractice(container, this.plugin, events);
 	}
 }

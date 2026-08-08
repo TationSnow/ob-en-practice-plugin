@@ -22,6 +22,10 @@ describe('ChatPromptTemplate 编译', () => {
 		const sysMsg = result.messages[0]?.content as string;
 		expect(sysMsg).toContain('主语');
 		expect(sysMsg).toContain('predicate');
+		expect(sysMsg).toContain('attributive');
+		expect(sysMsg).toContain('主句');
+		expect(sysMsg).toContain('function');
+		expect(sysMsg).toContain('tense');
 		expect(sysMsg).toContain('JSON');
 	});
 

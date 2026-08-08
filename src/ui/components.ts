@@ -6,10 +6,9 @@ export const COMPONENT_CSS_CLASS: Record<ComponentType, string> = {
 	subject: 'en-grammar-subject',
 	predicate: 'en-grammar-predicate',
 	object: 'en-grammar-object',
-	attribute: 'en-grammar-attribute',
-	adverbial: 'en-grammar-adverbial',
 	complement: 'en-grammar-complement',
-	clause: 'en-grammar-clause',
+	adverbial: 'en-grammar-adverbial',
+	attributive: 'en-grammar-attributive',
 	other: 'en-grammar-other',
 };
 
@@ -18,10 +17,9 @@ export const COMPONENT_LABELS: Record<ComponentType, string> = {
 	subject: '主语',
 	predicate: '谓语',
 	object: '宾语',
-	attribute: '定语',
-	adverbial: '状语',
 	complement: '补语',
-	clause: '从句',
+	adverbial: '状语',
+	attributive: '定语',
 	other: '其他',
 };
 
@@ -190,6 +188,7 @@ function appendComponentSpan(
 	const relatedClause = clauses.find((c) => component.text.includes(c.text));
 	if (relatedClause && relatedClause.level > 0) {
 		const sup = span.createEl('sup');
+		sup.addClass('en-clause-level');
 		sup.setText(String(relatedClause.level));
 	}
 }

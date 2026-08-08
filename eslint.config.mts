@@ -29,6 +29,8 @@ export default defineConfig(
 					'tests/structured-output.test.ts',
 					'tests/model.test.ts',
 					'tests/sentence-utils.test.ts',
+					'tests/grammar-validator.test.ts',
+					'tests/panel-events.test.ts',
 				],
 				},
 				tsconfigRootDir: import.meta.dirname,
