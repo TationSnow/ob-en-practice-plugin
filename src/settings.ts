@@ -1,4 +1,9 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import {
+	App,
+	PluginSettingTab,
+	Setting,
+	type SettingDefinitionItem,
+} from 'obsidian';
 import type EnPracticePlugin from './main';
 
 /** 插件设置项 */
@@ -40,13 +45,99 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
+	/**
+	 * 声明式设置定义：供 Obsidian 1.13+ 的设置搜索与渲染使用。
+	 * 保留 display() 作为旧版本 Obsidian 的回退渲染。
+	 */
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		return [
+			{
+				name: 'API 密钥',
+				desc: 'OpenAI 兼容 API 的密钥（必填，部分不需要 key 的服务随便填写即可）',
+				control: {
+					type: 'text',
+					key: 'apiKey',
+					placeholder: 'sk-...',
+				},
+			},
+			{
+				name: 'API 地址',
+				desc: 'OpenAI 兼容格式的请求链接（必填），如 https://api.openai.com/v1',
+				control: {
+					type: 'text',
+					key: 'baseUrl',
+					placeholder: 'https://api.openai.com/v1',
+				},
+			},
+			{
+				name: '模型名称',
+				desc: '使用的模型名称（必填），如 gpt-4o-mini',
+				control: {
+					type: 'text',
+					key: 'modelName',
+					placeholder: 'gpt-4o-mini',
+				},
+			},
+			{
+				name: '启用思考模式',
+				desc: '开启后向 deepseek 等推理模型请求思考模式；思考模式不支持函数调用，且会消耗更多 token。',
+				control: {
+					type: 'toggle',
+					key: 'thinkingEnabled',
+				},
+			},
+			{
+				name: '最长 token',
+				desc: '单次请求生成内容的最大 token 数（256-32768），思考模式下建议调大。',
+				control: {
+					type: 'number',
+					key: 'maxTokens',
+					min: 256,
+					max: 32768,
+					step: 256,
+					placeholder: '4096',
+					defaultValue: 4096,
+				},
+			},
+			{
+				name: '解析重试次数',
+				desc: '模型输出解析失败时的最大自动重试次数（0-3），默认 1。',
+				control: {
+					type: 'number',
+					key: 'retryCount',
+					min: 0,
+					max: 3,
+					step: 1,
+					placeholder: '1',
+					defaultValue: 1,
+				},
+			},
+			{
+				name: '启用流式输出',
+				desc: '关闭后改为非流式请求，便于排查流式相关问题。',
+				control: {
+					type: 'toggle',
+					key: 'streamingEnabled',
+				},
+			},
+			{
+				name: '调试模式',
+				desc: '开启后在翻译写作下方显示 AI 请求调试面板与流式输出日志。',
+				control: {
+					type: 'toggle',
+					key: 'debugMode',
+				},
+			},
+		];
+	}
+
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
 
 		new Setting(containerEl)
 			.setName('API 密钥')
-			.setDesc('OpenAI 兼容 API 的密钥（必填，部分不需要KEY的服务随便填写即可）')
+			.setDesc('OpenAI 兼容 API 的密钥（必填，部分不需要 key 的服务随便填写即可）')
 			.addText((text) =>
 				text
 					.setPlaceholder('sk-...')

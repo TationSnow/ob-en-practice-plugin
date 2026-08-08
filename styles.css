@@ -155,7 +155,7 @@
 
 /* ===== 语法标注颜色 ===== */
 .en-grammar-subject {
-	color: var(--text-accent);
+	color: var(--color-blue);
 	font-weight: var(--font-semibold);
 }
 

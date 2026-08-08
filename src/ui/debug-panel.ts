@@ -123,19 +123,12 @@ function buildDebugLogText(entries: readonly AiDebugEntry[]): string {
 }
 
 /**
- * 将文本复制到剪贴板，带 execCommand 兜底。
+ * 将文本复制到剪贴板。
  * @param text 要复制的文本
  */
 async function copyToClipboard(text: string): Promise<void> {
-	if (navigator.clipboard?.writeText) {
-		await navigator.clipboard.writeText(text);
-		return;
+	if (!navigator.clipboard?.writeText) {
+		throw new Error('当前环境不支持剪贴板 API');
 	}
-
-	const textarea = document.body.createEl('textarea');
-	textarea.setCssProps({ position: 'fixed', opacity: '0' });
-	textarea.value = text;
-	textarea.select();
-	document.execCommand('copy');
-	textarea.remove();
+	await navigator.clipboard.writeText(text);
 }

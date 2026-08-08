@@ -41,4 +41,19 @@ export default defineConfig(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		rules: {
+			// URL、API Key 占位符与模型名属于大小写敏感内容，跳过 sentence-case 误报
+			'obsidianmd/ui/sentence-case': [
+				'warn',
+				{
+					ignoreRegex: [
+						'sk-\\.\\.\\.',
+						'https?://\\S+',
+						'gpt-4o-mini',
+					],
+				},
+			],
+		},
+	},
 );
