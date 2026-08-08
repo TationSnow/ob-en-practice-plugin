@@ -9,12 +9,21 @@ export interface EnPracticeSettings {
 	baseUrl: string;
 	/** 模型名称（必填），如 gpt-4o-mini */
 	modelName: string;
+	/** 模型输出解析失败时的最大自动重试次数（0-3） */
+	retryCount: number;
+	/** 调试模式：开启后显示 AI 请求调试面板 */
+	debugMode: boolean;
+	/** 是否启用流式输出 */
+	streamingEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: EnPracticeSettings = {
 	apiKey: '',
 	baseUrl: '',
 	modelName: '',
+	retryCount: 1,
+	debugMode: false,
+	streamingEnabled: true,
 };
 
 export class EnPracticeSettingTab extends PluginSettingTab {
@@ -64,6 +73,56 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.modelName)
 					.onChange(async (value) => {
 						this.plugin.settings.modelName = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName('解析重试次数')
+			.setDesc('模型输出解析失败时的最大自动重试次数（0-3），默认 1。')
+			.addText((text) => {
+				text.inputEl.setAttr('type', 'number');
+				text.inputEl.setAttr('min', '0');
+				text.inputEl.setAttr('max', '3');
+				text.inputEl.setAttr('step', '1');
+				text
+					.setPlaceholder('1')
+					.setValue(String(this.plugin.settings.retryCount))
+					.onChange(async (value) => {
+						const parsed = Number.parseInt(value, 10);
+						if (Number.isNaN(parsed)) {
+							return;
+						}
+						this.plugin.settings.retryCount = Math.min(
+							3,
+							Math.max(0, Math.floor(parsed)),
+						);
+						text.setValue(String(this.plugin.settings.retryCount));
+						await this.plugin.saveSettings();
+					});
+				return text;
+			});
+
+		new Setting(containerEl)
+			.setName('启用流式输出')
+			.setDesc('关闭后改为非流式请求，便于排查流式相关问题。')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.streamingEnabled)
+					.onChange(async (value) => {
+						this.plugin.settings.streamingEnabled = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName('调试模式')
+			.setDesc('开启后在翻译写作下方显示 AI 请求调试面板与流式输出日志。')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.debugMode)
+					.onChange(async (value) => {
+						this.plugin.settings.debugMode = value;
 						await this.plugin.saveSettings();
 					}),
 			);

@@ -8,6 +8,7 @@ import {
 	createActionButton,
 	createResultSection,
 } from './components';
+import { renderDebugPanel } from './debug-panel';
 
 /** 当前题目状态 */
 interface WritingState {
@@ -51,18 +52,44 @@ export function renderWritingPractice(
 		state.difficulty = diffSelect.value as Difficulty;
 	});
 
+	// 生成题目的流式输出状态区
+	const generateStatus = section.createEl('pre');
+	generateStatus.addClass('en-stream-output');
+	generateStatus.addClass('en-hidden');
+	let generateStreamStarted = false;
+
 	// 生成按钮
 	createActionButton(section, '一键生成', async () => {
 		const reference = refInput.value.trim();
+		generateStatus.empty();
+		generateStatus.removeClass('en-hidden');
+		generateStatus.setText(
+			plugin.settings.streamingEnabled ? '正在流式输出...' : '正在处理...',
+		);
+		generateStreamStarted = false;
 		try {
 			const question = await generateQuestion(
 				reference,
 				state.difficulty,
 				plugin.settings,
+				{
+					onToken: (token) => {
+						if (!generateStreamStarted) {
+							generateStatus.setText('');
+							generateStreamStarted = true;
+						}
+						generateStatus.appendText(token);
+					},
+					debug: plugin.settings.debugMode,
+				},
 			);
+			generateStatus.addClass('en-hidden');
 			state.question = question;
 			renderTranslationQuestion(section, question, state.difficulty, plugin);
 		} catch (err) {
+			generateStatus.setText(
+				`请求失败：${err instanceof Error ? err.message : '未知错误'}`,
+			);
 			new Notice(
 				`生成失败：${err instanceof Error ? err.message : '未知错误'}`,
 			);
@@ -78,6 +105,11 @@ export function renderWritingPractice(
 	const evalArea = section.createDiv('en-result-area');
 	evalArea.id = 'en-writing-evaluation';
 	evalArea.addClass('en-hidden');
+
+	// 调试模式：在翻译写作下方展示 AI 请求日志
+	if (plugin.settings.debugMode) {
+		renderDebugPanel(container);
+	}
 }
 
 /**
@@ -126,6 +158,14 @@ function renderTranslationQuestion(
 			new Notice('请输入你的翻译');
 			return;
 		}
+		evalArea.empty();
+		evalArea.removeClass('en-hidden');
+		const evalStatus = evalArea.createEl('pre');
+		evalStatus.addClass('en-stream-output');
+		evalStatus.setText(
+			plugin.settings.streamingEnabled ? '正在流式输出...' : '正在处理...',
+		);
+		let evalStreamStarted = false;
 		try {
 			const result = await evaluateTranslation(
 				question.chinese,
@@ -133,9 +173,22 @@ function renderTranslationQuestion(
 				question.hint,
 				difficulty,
 				plugin.settings,
+				{
+					onToken: (token) => {
+						if (!evalStreamStarted) {
+							evalStatus.setText('');
+							evalStreamStarted = true;
+						}
+						evalStatus.appendText(token);
+					},
+					debug: plugin.settings.debugMode,
+				},
 			);
 			renderEvaluation(evalArea, result);
 		} catch (err) {
+			evalStatus.setText(
+				`请求失败：${err instanceof Error ? err.message : '未知错误'}`,
+			);
 			new Notice(
 				`评估失败：${err instanceof Error ? err.message : '未知错误'}`,
 			);

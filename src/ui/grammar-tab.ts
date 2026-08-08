@@ -34,19 +34,45 @@ export function renderGrammarAnalysis(
 
 	// 按钮
 	const btnContainer = section.createDiv('en-button-container');
+	// 流式输出状态区
+	const streamStatus = section.createEl('pre');
+	streamStatus.addClass('en-stream-output');
+	streamStatus.addClass('en-hidden');
+	let streamStarted = false;
+
 	createActionButton(btnContainer, '一键分析', async () => {
 		const sentence = textarea.value.trim();
 		if (!sentence) {
 			new Notice('请输入要分析的英语句子');
 			return;
 		}
+		streamStatus.empty();
+		streamStatus.removeClass('en-hidden');
+		streamStatus.setText(
+			plugin.settings.streamingEnabled ? '正在流式输出...' : '正在处理...',
+		);
+		streamStarted = false;
 		try {
 			const result = await analyzeGrammar(
 				sentence,
 				plugin.settings,
+				{
+					onToken: (token) => {
+						if (!streamStarted) {
+							streamStatus.setText('');
+							streamStarted = true;
+						}
+						streamStatus.appendText(token);
+					},
+					debug: plugin.settings.debugMode,
+				},
 			);
+			streamStatus.addClass('en-hidden');
 			renderGrammarResult(section, result);
 		} catch (err) {
+			streamStatus.setText(
+				`请求失败：${err instanceof Error ? err.message : '未知错误'}`,
+			);
 			new Notice(
 				`分析失败：${err instanceof Error ? err.message : '未知错误'}`,
 			);

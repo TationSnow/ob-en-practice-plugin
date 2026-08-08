@@ -266,3 +266,78 @@
 	margin: 0;
 	max-width: 100%;
 }
+
+/* ===== 流式输出 ===== */
+.en-stream-output {
+	margin-top: var(--size-4-2);
+	padding: var(--size-4-2);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-small);
+	white-space: pre-wrap;
+	word-break: break-all;
+	max-height: 180px;
+	overflow: auto;
+	box-sizing: border-box;
+}
+
+/* ===== 调试面板 ===== */
+.en-debug-panel {
+	background: var(--background-secondary);
+}
+
+.en-debug-actions {
+	display: flex;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-2);
+	flex-wrap: wrap;
+	align-items: center;
+}
+
+.en-debug-log {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	max-height: 260px;
+	overflow-y: auto;
+	box-sizing: border-box;
+}
+
+.en-debug-empty {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	margin: 0;
+}
+
+.en-debug-entry {
+	padding: var(--size-4-2);
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-small);
+}
+
+.en-debug-entry-header {
+	color: var(--text-muted);
+	margin-bottom: var(--size-4-1);
+	word-break: break-all;
+}
+
+.en-debug-entry-detail {
+	margin: 0;
+	font-family: var(--font-monospace);
+	font-size: 0.9em;
+	white-space: pre-wrap;
+	word-break: break-all;
+	color: var(--text-normal);
+}
+
+.en-debug-error {
+	border-color: var(--text-error);
+}
+
+.en-debug-error .en-debug-entry-header {
+	color: var(--text-error);
+}
