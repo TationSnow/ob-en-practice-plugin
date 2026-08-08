@@ -57,6 +57,7 @@ export async function generateQuestion(
 		maxRetries: settings.retryCount,
 		onToken: settings.streamingEnabled ? options?.onToken : undefined,
 		debug: options?.debug,
+		thinkingEnabled: settings.thinkingEnabled,
 	});
 }
 
@@ -92,5 +93,6 @@ export async function evaluateTranslation(
 		maxRetries: settings.retryCount,
 		onToken: settings.streamingEnabled ? options?.onToken : undefined,
 		debug: options?.debug,
+		thinkingEnabled: settings.thinkingEnabled,
 	});
 }

@@ -27,6 +27,7 @@ export default defineConfig(
 					'vitest.config.ts',
 					'tests/prompts.test.ts',
 					'tests/structured-output.test.ts',
+					'tests/model.test.ts',
 				],
 				},
 				tsconfigRootDir: import.meta.dirname,

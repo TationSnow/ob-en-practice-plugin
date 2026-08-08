@@ -15,6 +15,10 @@ export interface EnPracticeSettings {
 	debugMode: boolean;
 	/** 是否启用流式输出 */
 	streamingEnabled: boolean;
+	/** 是否启用模型思考模式（DeepSeek 等推理模型） */
+	thinkingEnabled: boolean;
+	/** 单次请求生成内容的最大 token 数 */
+	maxTokens: number;
 }
 
 export const DEFAULT_SETTINGS: EnPracticeSettings = {
@@ -24,6 +28,8 @@ export const DEFAULT_SETTINGS: EnPracticeSettings = {
 	retryCount: 1,
 	debugMode: false,
 	streamingEnabled: true,
+	thinkingEnabled: false,
+	maxTokens: 4096,
 };
 
 export class EnPracticeSettingTab extends PluginSettingTab {
@@ -76,6 +82,43 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+
+		new Setting(containerEl)
+			.setName('启用思考模式')
+			.setDesc('开启后向 deepseek 等推理模型请求思考模式；思考模式不支持函数调用，且会消耗更多 token。')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.thinkingEnabled)
+					.onChange(async (value) => {
+						this.plugin.settings.thinkingEnabled = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName('最长 token')
+			.setDesc('单次请求生成内容的最大 token 数（256-32768），思考模式下建议调大。')
+			.addText((text) => {
+				text.inputEl.setAttr('type', 'number');
+				text.inputEl.setAttr('min', '256');
+				text.inputEl.setAttr('max', '32768');
+				text.inputEl.setAttr('step', '256');
+				text.setPlaceholder('4096');
+				text.setValue(String(this.plugin.settings.maxTokens));
+				text.onChange(async (value) => {
+					const parsed = Number.parseInt(value, 10);
+					if (Number.isNaN(parsed)) {
+						return;
+					}
+					this.plugin.settings.maxTokens = Math.min(
+						32768,
+						Math.max(256, Math.floor(parsed)),
+					);
+					text.setValue(String(this.plugin.settings.maxTokens));
+					await this.plugin.saveSettings();
+				});
+				return text;
+			});
 
 		new Setting(containerEl)
 			.setName('解析重试次数')

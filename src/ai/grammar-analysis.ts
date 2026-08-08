@@ -37,5 +37,6 @@ export async function analyzeGrammar(
 		maxRetries: settings.retryCount,
 		onToken: settings.streamingEnabled ? options?.onToken : undefined,
 		debug: options?.debug,
+		thinkingEnabled: settings.thinkingEnabled,
 	});
 }

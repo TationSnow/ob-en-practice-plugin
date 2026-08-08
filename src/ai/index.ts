@@ -12,6 +12,9 @@ const REQUEST_TIMEOUT_MS = 60_000;
 /** OpenAI 客户端自身最多重试次数，避免无响应时重复等待 */
 const REQUEST_MAX_RETRIES = 1;
 
+/** DeepSeek 等支持思考模式参数（thinking）的模型名模式 */
+const THINKING_MODEL_PATTERN = /deepseek/i;
+
 /**
  * 创建基于用户配置的 ChatOpenAI 实例
  * @param settings 用户设置
@@ -28,10 +31,20 @@ export function createModel(settings: EnPracticeSettings): ChatOpenAI {
 				model: settings.modelName,
 				baseUrl: settings.baseUrl,
 				streaming: settings.streamingEnabled,
+				thinking: settings.thinkingEnabled,
+				maxTokens: settings.maxTokens,
 				timeout: REQUEST_TIMEOUT_MS,
 				maxRetries: REQUEST_MAX_RETRIES,
 			}),
 		});
+	}
+
+	// DeepSeek 等推理模型通过 thinking 参数控制思考模式，其他接口不发送该字段
+	const modelKwargs: Record<string, unknown> = {};
+	if (THINKING_MODEL_PATTERN.test(settings.modelName)) {
+		modelKwargs.thinking = {
+			type: settings.thinkingEnabled ? 'enabled' : 'disabled',
+		};
 	}
 
 	return new ChatOpenAI({
@@ -41,9 +54,12 @@ export function createModel(settings: EnPracticeSettings): ChatOpenAI {
 			baseURL: settings.baseUrl,
 		},
 		temperature: 0.3,
-		maxTokens: 2048,
+		maxTokens: settings.maxTokens,
 		streaming: settings.streamingEnabled,
 		timeout: REQUEST_TIMEOUT_MS,
 		maxRetries: REQUEST_MAX_RETRIES,
+		// 保留原始响应分块，便于流式兼容读取 reasoning_content
+		__includeRawResponse: true,
+		modelKwargs,
 	});
 }

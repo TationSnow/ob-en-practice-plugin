@@ -35,6 +35,8 @@ export interface InvokeStructuredOptions<T extends z.ZodType> {
 	onToken?: (token: string) => void;
 	/** 是否写入调试日志 */
 	debug?: boolean;
+	/** 是否启用思考模式；开启时跳过不兼容的函数调用方法 */
+	thinkingEnabled?: boolean;
 }
 
 /** AI 功能函数可接收的流式/调试选项 */
@@ -56,6 +58,7 @@ interface ParsedStructuredResult<T> {
  */
 export function resolveOutputMethods(
 	model: ChatOpenAI,
+	thinkingEnabled = false,
 ): StructuredOutputMethod[] {
 	const modelName = (model.model ?? '').toLowerCase();
 
@@ -64,9 +67,12 @@ export function resolveOutputMethods(
 		return ['jsonSchema', 'jsonMode', 'functionCalling'];
 	}
 
-	// DeepSeek 官方确认支持 JSON Output，优先 jsonMode
+	// DeepSeek 官方确认支持 JSON Output，优先 jsonMode；
+	// 思考模式不支持 tool_choice，需要去掉 functionCalling
 	if (modelName.includes('deepseek')) {
-		return ['jsonMode', 'functionCalling'];
+		return thinkingEnabled
+			? ['jsonMode']
+			: ['jsonMode', 'functionCalling'];
 	}
 
 	// 已知 OpenAI 结构化输出模型优先使用 JSON Schema
@@ -126,6 +132,28 @@ function extractTextContent(content: unknown): string {
 	return '';
 }
 
+/** 流式分块结构：LangChain 消息分块带 additional_kwargs */
+interface StreamChunk {
+	content: unknown;
+	additional_kwargs?: Record<string, unknown>;
+}
+
+/** 从原始响应中提取思考内容（DeepSeek reasoning_content） */
+function extractReasoningContent(chunk: StreamChunk): string {
+	const raw = chunk.additional_kwargs?.__raw_response as
+		| {
+				choices?: Array<{
+					delta?: { reasoning_content?: unknown };
+					message?: { reasoning_content?: unknown };
+				}>;
+		  }
+		| undefined;
+	const choice = raw?.choices?.[0];
+	return extractTextContent(
+		choice?.message?.reasoning_content ?? choice?.delta?.reasoning_content,
+	);
+}
+
 /**
  * 获取错误的可读文本。
  * @param err 未知错误
@@ -137,23 +165,28 @@ function errorMessage(err: unknown): string {
 
 /**
  * 逐块收集流式文本并触发 onToken 回调。
+ * 思考模型的最终答案优先取 content；content 为空时回退到 reasoning_content。
  * @param stream 模型返回的流
  * @param onToken 文本分片回调
  * @returns 拼接后的完整文本
  */
 async function collectStreamText(
-	stream: AsyncIterable<{ content: unknown }>,
+	stream: AsyncIterable<StreamChunk>,
 	onToken?: (token: string) => void,
 ): Promise<string> {
 	let rawText = '';
+	let reasoningText = '';
 	for await (const chunk of stream) {
 		const text = extractTextContent(chunk.content);
 		if (text) {
 			rawText += text;
 			onToken?.(text);
+		} else {
+			reasoningText += extractReasoningContent(chunk);
 		}
 	}
-	return rawText;
+	// 只有最终答案为空时才使用思考内容，避免解析到中间推理过程
+	return rawText || reasoningText;
 }
 
 /**
@@ -228,13 +261,14 @@ export async function invokeStructured<T extends z.ZodType>(
 		variables,
 		onToken,
 		debug,
+		thinkingEnabled,
 	} = options;
 	const maxAttempts = Math.max(
 		0,
 		Math.min(3, Math.floor(options.maxRetries)),
 	);
 	const parser = StructuredOutputParser.fromZodSchema(schema);
-	const methods = resolveOutputMethods(model);
+	const methods = resolveOutputMethods(model, thinkingEnabled);
 	const requestId = createRequestId(outputName);
 
 	if (debug) {
@@ -396,6 +430,9 @@ export async function invokeStructured<T extends z.ZodType>(
 		} else {
 			const message = await model.invoke(promptValue.messages);
 			rawText = extractTextContent(message.content);
+			if (!rawText) {
+				rawText = extractReasoningContent(message);
+			}
 			try {
 				parsed = await parser.parse(rawText);
 			} catch {

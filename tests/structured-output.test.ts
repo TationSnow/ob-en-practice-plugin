@@ -62,10 +62,10 @@ function createFakeModel(
 
 /** 构造一个按块输出的假流 */
 async function* createChunkStream(
-	chunks: string[],
-): AsyncGenerator<{ content: string }> {
+	chunks: { content: string; additional_kwargs?: Record<string, unknown> }[],
+): AsyncGenerator<{ content: string; additional_kwargs?: Record<string, unknown> }> {
 	for (const chunk of chunks) {
-		yield { content: chunk };
+		yield chunk;
 	}
 }
 
@@ -111,6 +111,11 @@ describe('resolveOutputMethods', () => {
 		]);
 	});
 
+	it('DeepSeek 开启思考模式时跳过 functionCalling', () => {
+		const model = createFakeModel({ model: 'deepseek-v4-flash' });
+		expect(resolveOutputMethods(model, true)).toEqual(['jsonMode']);
+	});
+
 	it('OpenAI 结构化输出模型应优先 jsonSchema', () => {
 		const model = createFakeModel({ model: 'gpt-4o' });
 		expect(resolveOutputMethods(model)).toEqual([
@@ -132,7 +137,10 @@ describe('resolveOutputMethods', () => {
 describe('invokeStructured', () => {
 	it('jsonMode 开启流式回调时逐块输出并完成校验', async () => {
 		const json = JSON.stringify(VALID_EVALUATION);
-		const stream = createChunkStream([json.slice(0, 20), json.slice(20)]);
+		const stream = createChunkStream([
+			{ content: json.slice(0, 20) },
+			{ content: json.slice(20) },
+		]);
 		const withConfig = vi.fn().mockReturnValue({
 			stream: vi.fn().mockResolvedValue(stream),
 		});
@@ -158,6 +166,61 @@ describe('invokeStructured', () => {
 			}),
 		);
 		expect(tokens.join('')).toContain('"score"');
+	});
+
+	it('content 为空时回退读取 reasoning_content 并完成校验', async () => {
+		const json = JSON.stringify(VALID_EVALUATION);
+		const raw = {
+			choices: [{ delta: { reasoning_content: json } }],
+		};
+		const stream = createChunkStream([
+			{ content: '', additional_kwargs: { __raw_response: raw } },
+		]);
+		const withConfig = vi.fn().mockReturnValue({
+			stream: vi.fn().mockResolvedValue(stream),
+		});
+		const model = createFakeModel({ withConfig });
+
+		const result = await invokeStructured({
+			model,
+			prompt: TEST_PROMPT,
+			schema: translationEvaluationSchema,
+			outputName: 'translationEvaluation',
+			variables: { input: 'test' },
+			maxRetries: 0,
+			onToken: vi.fn(),
+		});
+
+		expect(result).toEqual(VALID_EVALUATION);
+	});
+
+	it('思考模式下 DeepSeek 只使用 jsonMode', async () => {
+		const usedMethods: string[] = [];
+		const withStructuredOutput = vi.fn().mockImplementation(
+			(_schema: unknown, config: { method?: string }) => {
+				usedMethods.push(config.method ?? '');
+				return {
+					invoke: vi.fn().mockResolvedValue({
+						raw: {},
+						parsed: VALID_GRAMMAR,
+					}),
+				};
+			},
+		);
+		const model = createFakeModel({ withStructuredOutput });
+
+		const result = await invokeStructured({
+			model,
+			prompt: TEST_PROMPT,
+			schema: grammarSchema,
+			outputName: 'grammarResult',
+			variables: { input: 'test' },
+			maxRetries: 0,
+			thinkingEnabled: true,
+		});
+
+		expect(result).toEqual(VALID_GRAMMAR);
+		expect(usedMethods).toEqual(['jsonMode']);
 	});
 
 	it('解析失败时按重试次数重试同一方法', async () => {
