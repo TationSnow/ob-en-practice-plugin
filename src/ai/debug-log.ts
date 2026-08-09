@@ -82,14 +82,14 @@ export function createRequestId(feature: string): string {
 }
 
 /**
- * 将调试详情转换为截断后的字符串。
+ * 将调试详情转换为完整字符串，便于调试时查看和复制全部信息。
  * @param value 原始详情
- * @param maxLength 最大长度
+ * @param maxLength 可选的最大长度；默认不截断
  * @returns 可展示的字符串
  */
 export function formatDebugDetail(
 	value: unknown,
-	maxLength = 2000,
+	maxLength = Number.POSITIVE_INFINITY,
 ): string {
 	try {
 		const text = JSON.stringify(value) ?? String(value);

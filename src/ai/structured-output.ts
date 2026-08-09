@@ -567,7 +567,7 @@ export async function invokeStructured<T extends z.ZodType>(
 
 	const parseError = new AiError(
 		'PARSE_ERROR',
-		`模型输出无法解析，原始输出：${rawText.slice(0, 500)}`,
+		`模型输出无法解析，原始输出：${rawText}`,
 	);
 	if (debug) {
 		addDebugEntry({

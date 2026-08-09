@@ -34,6 +34,7 @@ export default defineConfig(
 					'tests/panel-events.test.ts',
 					'tests/grammar-highlight.test.ts',
 					'tests/grammar-render.test.ts',
+					'tests/debug-log.test.ts',
 				],
 				},
 				tsconfigRootDir: import.meta.dirname,
