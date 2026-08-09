@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { findComponentSpan, splitSentences } from '../src/utils/sentence';
+import {
+	findComponentSpan,
+	splitSentences,
+	stripGrammarAnnotations,
+} from '../src/utils/sentence';
 
 describe('splitSentences', () => {
 	it('按 ? 和 . 拆分多句，并保留标点', () => {
@@ -107,5 +111,39 @@ describe('findComponentSpan', () => {
 		});
 		expect(findComponentSpan(source, 'missing', 0)).toBeNull();
 		expect(findComponentSpan(source, '   ', 0)).toBeNull();
+	});
+});
+
+describe('stripGrammarAnnotations', () => {
+	it('应清理单层从句标注', () => {
+		expect(
+			stripGrammarAnnotations(
+				'Loyalty consists of a friend, (who will stick by you)1, through thick and thin.',
+			),
+		).toBe(
+			'Loyalty consists of a friend, who will stick by you, through thick and thin.',
+		);
+	});
+
+	it('应逐层清理嵌套从句标注', () => {
+		expect(
+			stripGrammarAnnotations(
+				'Loyalty consists of a friend, ((who will stick by you)1)1, through thick and thin.',
+			),
+		).toBe(
+			'Loyalty consists of a friend, who will stick by you, through thick and thin.',
+		);
+	});
+
+	it('不应误伤正常括号或括号内数字', () => {
+		expect(stripGrammarAnnotations('The report (2024) is here.')).toBe(
+			'The report (2024) is here.',
+		);
+		expect(stripGrammarAnnotations('Please select item (1).')).toBe(
+			'Please select item (1).',
+		);
+		expect(stripGrammarAnnotations('The formula (x)2 means squared.')).toBe(
+			'The formula (x)2 means squared.',
+		);
 	});
 });

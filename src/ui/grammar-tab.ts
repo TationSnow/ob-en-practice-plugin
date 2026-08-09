@@ -2,7 +2,7 @@ import { Notice } from 'obsidian';
 import type EnPracticePlugin from '../main';
 import type { GrammarResult } from '../types';
 import { analyzeGrammar } from '../ai/grammar-analysis';
-import { splitSentences } from '../utils/sentence';
+import { splitSentences, stripGrammarAnnotations } from '../utils/sentence';
 import {
 	createCollapsibleSection,
 	createActionButton,
@@ -43,7 +43,8 @@ export function renderGrammarAnalysis(
 	let streamStarted = false;
 
 	createActionButton(btnContainer, '一键分析', async () => {
-		const input = textarea.value.trim();
+		// 清理上次渲染留下的括号标注，避免模型把标注符号当成原句
+		const input = stripGrammarAnnotations(textarea.value.trim());
 		if (!input) {
 			new Notice('请输入要分析的英语句子');
 			return;

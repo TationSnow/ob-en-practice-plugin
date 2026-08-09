@@ -45,6 +45,12 @@ class FakeEl {
 	empty(): void {
 		this.children = [];
 	}
+
+	collectText(): string {
+		return `${this.text}${this.children
+			.map((child) => child.collectText())
+			.join('')}`;
+	}
 }
 
 describe('renderHighlightedSentence', () => {
@@ -102,5 +108,76 @@ describe('renderHighlightedSentence', () => {
 				result.clauses,
 			),
 		).not.toThrow();
+	});
+
+	it('从句不应被子成分重复包裹为多重括号', () => {
+		const sentence =
+			'Loyalty consists of a friend, who will stick by you, through thick and thin.';
+		const result = {
+			sentence,
+			components: [
+				{
+					text: 'Loyalty',
+					type: 'subject',
+				},
+				{
+					text: 'consists of',
+					type: 'predicate',
+					details: '谓语动词：consists of；一般现在时，主动语态',
+				},
+				{
+					text: 'a friend, who will stick by you, through thick and thin',
+					type: 'object',
+					details: '名词短语作宾语，内含定语从句',
+					children: [
+						{ text: 'a friend', type: 'object' },
+						{
+							text: 'who will stick by you',
+							type: 'attributive',
+							details: '非限制性定语从句',
+							children: [
+								{ text: 'who', type: 'subject' },
+								{
+									text: 'will stick by',
+									type: 'predicate',
+									details: '谓语动词：stick by；一般将来时',
+								},
+								{ text: 'you', type: 'object' },
+							],
+						},
+						{
+							text: 'through thick and thin',
+							type: 'adverbial',
+						},
+					],
+				},
+			],
+			clauses: [
+				{
+					text: sentence,
+					level: 0,
+					type: '主句',
+					function: '全句主干',
+				},
+				{
+					text: 'who will stick by you',
+					level: 1,
+					type: '定语从句',
+					function: '修饰 a friend',
+				},
+			],
+		};
+
+		const root = new FakeEl();
+		renderHighlightedSentence(
+			root as unknown as HTMLElement,
+			sentence,
+			result.components as never,
+			result.clauses,
+		);
+		const rendered = root.collectText();
+		expect(rendered).not.toContain('((');
+		expect(rendered).not.toContain('))');
+		expect(rendered).toContain('(who will stick by you)');
 	});
 });

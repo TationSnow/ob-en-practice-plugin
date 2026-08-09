@@ -192,6 +192,31 @@ export function splitSentences(text: string): string[] {
 	return segments;
 }
 
+/**
+ * 清理上一次语法分析渲染留下的标注痕迹。
+ * 我们的从句标注会生成 `(从句)1`、`(从句)2` 等括号加层级数字；
+ * 用户如果把带标注的结果再次粘贴分析，模型会把这些符号当成原文。
+ * 只清理“括号后紧跟数字、且括号内包含空格”的片段，避免误伤正常括号。
+ * @param text 原始输入
+ * @returns 清理标注痕迹后的文本
+ */
+export function stripGrammarAnnotations(text: string): string {
+	let result = text;
+	const annotationPattern = /\(([^()]*\s+[^()]*)\)([1-9][0-9]*)/g;
+	let changed = true;
+
+	// 嵌套标注需要逐层剥离，例如 ((who will stick by you)1)1
+	while (changed) {
+		changed = false;
+		result = result.replace(annotationPattern, (_match, inner: string) => {
+			changed = true;
+			return inner;
+		});
+	}
+
+	return result;
+}
+
 /** 成分匹配区间 */
 export interface ComponentSpan {
 	start: number;

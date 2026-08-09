@@ -266,13 +266,22 @@ function renderItems(
 				text,
 				clauses,
 			);
+			// 子成分自身就是从句时，从句已在父层包裹，避免进入子成分后重复加括号
+			const childItems = childRendering.items.filter(
+				(childItem) =>
+					!(
+						childItem.kind === 'clause' &&
+						childItem.start === item.start &&
+						childItem.end === item.end
+					),
+			);
 			renderItems(
 				container,
 				text,
 				item.start,
 				item.end,
 				childRendering.baseClass,
-				childRendering.items,
+				childItems,
 				clauses,
 			);
 		}
