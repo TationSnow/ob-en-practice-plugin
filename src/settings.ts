@@ -24,6 +24,10 @@ export interface EnPracticeSettings {
 	thinkingEnabled: boolean;
 	/** 单次请求生成内容的最大 token 数 */
 	maxTokens: number;
+	/** 是否启用 HTTP 代理（如 Clash 等本地代理） */
+	proxyEnabled: boolean;
+	/** HTTP 代理地址，如 http://127.0.0.1:7897 */
+	proxyUrl: string;
 }
 
 export const DEFAULT_SETTINGS: EnPracticeSettings = {
@@ -35,6 +39,8 @@ export const DEFAULT_SETTINGS: EnPracticeSettings = {
 	streamingEnabled: true,
 	thinkingEnabled: false,
 	maxTokens: 4096,
+	proxyEnabled: false,
+	proxyUrl: 'http://127.0.0.1:7897',
 };
 
 export class EnPracticeSettingTab extends PluginSettingTab {
@@ -76,6 +82,23 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 					type: 'text',
 					key: 'modelName',
 					placeholder: 'gpt-4o-mini',
+				},
+			},
+			{
+				name: '启用代理',
+				desc: '通过本地 HTTP 代理访问海外 API（如 Clash Verge 混合端口 7897），桌面端生效。',
+				control: {
+					type: 'toggle',
+					key: 'proxyEnabled',
+				},
+			},
+			{
+				name: '代理地址',
+				desc: '代理地址，格式为 http://127.0.0.1:7897。',
+				control: {
+					type: 'text',
+					key: 'proxyUrl',
+					placeholder: 'http://127.0.0.1:7897',
 				},
 			},
 			{
@@ -173,6 +196,43 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+
+		const proxyUrlSetting = new Setting(containerEl)
+			.setName('代理地址')
+			.setDesc('代理地址，格式为 http://127.0.0.1:7897。')
+			.addText((text) =>
+				text
+					.setPlaceholder('http://127.0.0.1:7897')
+					.setValue(this.plugin.settings.proxyUrl)
+					.onChange(async (value) => {
+						this.plugin.settings.proxyUrl = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+		const proxyUrlInput = proxyUrlSetting.controlEl.querySelector('input');
+
+		new Setting(containerEl)
+			.setName('启用代理')
+			.setDesc('通过本地 HTTP 代理访问海外 API（如 Clash Verge 混合端口 7897），桌面端生效。')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.proxyEnabled)
+					.onChange(async (value) => {
+						this.plugin.settings.proxyEnabled = value;
+						await this.plugin.saveSettings();
+						proxyUrlSetting.settingEl.toggleClass('is-disabled', !value);
+						if (proxyUrlInput) {
+							proxyUrlInput.disabled = !value;
+						}
+					}),
+			);
+
+		if (!this.plugin.settings.proxyEnabled) {
+			proxyUrlSetting.settingEl.addClass('is-disabled');
+			if (proxyUrlInput) {
+				proxyUrlInput.disabled = true;
+			}
+		}
 
 		new Setting(containerEl)
 			.setName('启用思考模式')

@@ -15,6 +15,8 @@ function createSettings(
 		streamingEnabled: true,
 		thinkingEnabled: false,
 		maxTokens: 4096,
+		proxyEnabled: false,
+		proxyUrl: 'http://127.0.0.1:7897',
 		...overrides,
 	};
 }
@@ -36,5 +38,23 @@ describe('createModel', () => {
 
 		const openai = createModel(createSettings({ modelName: 'gpt-4o' }));
 		expect(openai.modelKwargs?.thinking).toBeUndefined();
+	});
+
+	it('启用代理时注入自定义 fetch', () => {
+		const model = createModel(
+			createSettings({ proxyEnabled: true }),
+		) as unknown as {
+			clientConfig?: { fetch?: unknown };
+		};
+
+		expect(model.clientConfig?.fetch).toBeTypeOf('function');
+	});
+
+	it('未启用代理时不注入自定义 fetch', () => {
+		const model = createModel(createSettings()) as unknown as {
+			clientConfig?: { fetch?: unknown };
+		};
+
+		expect(model.clientConfig?.fetch).toBeUndefined();
 	});
 });

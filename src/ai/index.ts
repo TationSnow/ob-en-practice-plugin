@@ -1,10 +1,12 @@
 import { ChatOpenAI } from '@langchain/openai';
+import type { ChatOpenAIFields } from '@langchain/openai';
 import type { EnPracticeSettings } from '../settings';
 import {
 	addDebugEntry,
 	createRequestId,
 	formatDebugDetail,
 } from './debug-log';
+import { createProxyFetch, formatProxyAddress } from './proxy-fetch';
 
 /** 单次请求超时时间（毫秒），避免接口无响应时界面长时间卡住 */
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -35,6 +37,9 @@ export function createModel(settings: EnPracticeSettings): ChatOpenAI {
 				maxTokens: settings.maxTokens,
 				timeout: REQUEST_TIMEOUT_MS,
 				maxRetries: REQUEST_MAX_RETRIES,
+				proxy: settings.proxyEnabled
+					? formatProxyAddress(settings.proxyUrl)
+					: undefined,
 			}),
 		});
 	}
@@ -47,12 +52,21 @@ export function createModel(settings: EnPracticeSettings): ChatOpenAI {
 		};
 	}
 
+	const configuration: ChatOpenAIFields['configuration'] = {
+		baseURL: settings.baseUrl,
+	};
+	const proxyAddress = settings.proxyUrl.trim();
+	if (settings.proxyEnabled && proxyAddress) {
+		const proxyFetch = createProxyFetch(proxyAddress);
+		if (proxyFetch) {
+			configuration.fetch = proxyFetch;
+		}
+	}
+
 	return new ChatOpenAI({
 		model: settings.modelName,
 		apiKey: settings.apiKey || undefined,
-		configuration: {
-			baseURL: settings.baseUrl,
-		},
+		configuration,
 		temperature: 0.3,
 		maxTokens: settings.maxTokens,
 		streaming: settings.streamingEnabled,
