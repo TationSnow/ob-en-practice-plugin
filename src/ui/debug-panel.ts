@@ -11,21 +11,31 @@ import {
 import { createCollapsibleSection } from './sections';
 import { copyTextToClipboard } from '../utils/clipboard';
 
+/** 调试面板渲染选项 */
+export interface DebugPanelOptions {
+	/** 是否作为独立页签内嵌渲染（不套可折叠区块） */
+	embedded?: boolean;
+}
+
 /**
  * 渲染调试面板。
  * @param container 父容器
+ * @param options 渲染选项
  * @returns 清理函数，用于取消日志订阅
  */
 export function renderDebugPanel(
 	container: HTMLElement,
+	options: DebugPanelOptions = {},
 ): () => void {
-	const section = createCollapsibleSection(container, '调试面板');
-	section.content.addClass('en-debug-panel');
+	const content = options.embedded
+		? createEmbeddedDebugPanel(container)
+		: createCollapsibleSection(container, '调试面板').content;
+	content.addClass('en-debug-panel');
 
-	const logEl = section.content.createDiv('en-debug-log');
+	const logEl = content.createDiv('en-debug-log');
 	const render = (): void => renderDebugEntries(logEl, getDebugLog());
 
-	const actions = section.content.createDiv('en-debug-actions');
+	const actions = content.createDiv('en-debug-actions');
 	createActionButton(actions, '复制日志', async () => {
 		const entries = getDebugLog();
 		if (entries.length === 0) {
@@ -47,7 +57,7 @@ export function renderDebugPanel(
 	});
 
 	const unsubscribe = subscribeDebugLog(() => {
-		if (!section.content.isConnected) {
+		if (!content.isConnected) {
 			unsubscribe();
 			return;
 		}
@@ -56,6 +66,13 @@ export function renderDebugPanel(
 
 	render();
 	return unsubscribe;
+}
+
+/** 创建内嵌在调试页签中的调试面板容器 */
+function createEmbeddedDebugPanel(container: HTMLElement): HTMLElement {
+	const root = container.createDiv('en-debug-view');
+	root.createEl('h3', { text: '调试日志' }).addClass('en-panel-heading');
+	return root;
 }
 
 /**

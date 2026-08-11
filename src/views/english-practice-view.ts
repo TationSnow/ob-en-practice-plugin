@@ -9,12 +9,16 @@ import {
 import { createEmptyState } from '../ui/sections';
 import { renderGrammarAnalysis } from '../ui/grammar-tab';
 import { renderWritingPractice } from '../ui/writing-tab';
+import { renderDebugPanel } from '../ui/debug-panel';
 import { getActiveSelection } from '../utils/editor';
 
 export const VIEW_TYPE = 'en-practice-view';
 
 /** 面板内可切换的工作区页签 */
-type PracticeTab = 'grammar' | 'writing';
+type PracticeTab = 'grammar' | 'writing' | 'debug';
+
+/** 页签固定顺序，供切换时定位 tabindex */
+const TAB_ORDER: PracticeTab[] = ['grammar', 'writing', 'debug'];
 
 export class EnglishPracticeView extends ItemView {
 	plugin: EnPracticePlugin;
@@ -102,15 +106,22 @@ export class EnglishPracticeView extends ItemView {
 			this.openSettings();
 		});
 
-		// 双页签：语法分析 / 翻译写作
+		// 页签栏：语法分析 / 翻译写作，调试模式开启时追加调试页签
+		const tabs: { id: PracticeTab; label: string }[] = [
+			{ id: 'grammar', label: '语法分析' },
+			{ id: 'writing', label: '翻译写作' },
+		];
+		if (this.plugin.settings.debugMode) {
+			tabs.push({ id: 'debug', label: '调试' });
+		}
 		this.tabBar = createTabBar(
 			container,
-			[
-				{ id: 'grammar', label: '语法分析' },
-				{ id: 'writing', label: '翻译写作' },
-			],
+			tabs,
 			0,
-			(index) => this.setActiveTab(index === 0 ? 'grammar' : 'writing'),
+			(index) => {
+				const tab = tabs[index];
+				if (tab) this.setActiveTab(tab.id);
+			},
 		);
 
 		const grammarPanel = container.createDiv('en-tab-panel');
@@ -118,6 +129,9 @@ export class EnglishPracticeView extends ItemView {
 		const writingPanel = container.createDiv('en-tab-panel');
 		writingPanel.id = 'en-tab-panel-writing';
 		writingPanel.addClass('is-hidden');
+		const debugPanel = container.createDiv('en-tab-panel');
+		debugPanel.id = 'en-tab-panel-debug';
+		debugPanel.addClass('is-hidden');
 
 		const cleanupGrammar = renderGrammarAnalysis(
 			grammarPanel,
@@ -133,20 +147,30 @@ export class EnglishPracticeView extends ItemView {
 			this.plugin,
 			events,
 		);
-		this.cleanupFns = [cleanupGrammar, cleanupWriting];
+		const cleanupDebug = this.plugin.settings.debugMode
+			? renderDebugPanel(debugPanel, { embedded: true })
+			: () => {};
+		this.cleanupFns = [cleanupGrammar, cleanupWriting, cleanupDebug];
 	}
 
 	/** 切换当前工作区页签 */
 	private setActiveTab(tab: PracticeTab): void {
-		this.tabBar?.setActive(tab === 'grammar' ? 0 : 1);
+		const tabIndex = TAB_ORDER.indexOf(tab);
+		if (tabIndex >= 0) {
+			this.tabBar?.setActive(tabIndex);
+		}
 		const grammarPanel = this.contentEl.querySelector(
 			'#en-tab-panel-grammar',
 		);
 		const writingPanel = this.contentEl.querySelector(
 			'#en-tab-panel-writing',
 		);
+		const debugPanel = this.contentEl.querySelector(
+			'#en-tab-panel-debug',
+		);
 		grammarPanel?.toggleClass('is-hidden', tab !== 'grammar');
 		writingPanel?.toggleClass('is-hidden', tab !== 'writing');
+		debugPanel?.toggleClass('is-hidden', tab !== 'debug');
 	}
 
 	/** 打开插件设置页 */

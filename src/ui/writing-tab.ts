@@ -24,7 +24,6 @@ import {
 import { createStatusLine } from './status';
 import { createWorkflowStepper } from './workflow';
 import { onGrammarReference } from './panel-events';
-import { renderDebugPanel } from './debug-panel';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { getScoreClass } from '../utils/score';
 
@@ -81,7 +80,6 @@ export function renderWritingPractice(
 
 	// 难度分段控件
 	const fieldRow = root.createDiv('en-field-row');
-	fieldRow.createSpan('en-field-label').setText('难度');
 	createSegmentedControl<Difficulty>(fieldRow, {
 		ariaLabel: '题目难度',
 		value: state.difficulty,
@@ -149,14 +147,8 @@ export function renderWritingPractice(
 		refSection.setOpen(true);
 	});
 
-	// 调试模式：在翻译写作下方展示 AI 请求日志
-	const unsubscribeDebug = plugin.settings.debugMode
-		? renderDebugPanel(root)
-		: () => {};
-
 	return () => {
 		unsubscribeReference();
-		unsubscribeDebug();
 	};
 }
 

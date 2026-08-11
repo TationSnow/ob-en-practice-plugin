@@ -161,7 +161,7 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 				items: [
 					{
 						name: '调试模式',
-						desc: '开启后在翻译写作下方显示 AI 请求调试面板与请求日志。',
+						desc: '开启后在面板页签栏中显示调试页签与 AI 请求日志。',
 						control: {
 							type: 'toggle',
 							key: 'debugMode',
@@ -335,7 +335,7 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('调试模式')
-			.setDesc('开启后在翻译写作下方显示 AI 请求调试面板与请求日志。')
+			.setDesc('开启后在面板页签栏中显示调试页签与 AI 请求日志。')
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.debugMode)
