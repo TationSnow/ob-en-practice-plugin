@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderHighlightedSentence } from '../src/ui/components';
+import { renderHighlightedSentence } from '../src/ui/grammar-render';
 
 /** 最小 DOM 桩，用于在 Node 环境验证渲染逻辑 */
 class FakeEl {

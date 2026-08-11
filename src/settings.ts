@@ -58,98 +58,116 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 	getSettingDefinitions(): SettingDefinitionItem[] {
 		return [
 			{
-				name: 'API 密钥',
-				desc: 'OpenAI 兼容 API 的密钥（必填，部分不需要 key 的服务随便填写即可）',
-				control: {
-					type: 'text',
-					key: 'apiKey',
-					placeholder: 'sk-...',
-				},
+				type: 'group',
+				heading: 'API 配置',
+				items: [
+					{
+						name: 'API 密钥',
+						desc: 'OpenAI 兼容 API 的密钥（必填，部分不需要 key 的服务随便填写即可）',
+						control: {
+							type: 'text',
+							key: 'apiKey',
+							placeholder: 'sk-...',
+						},
+					},
+					{
+						name: 'API 地址',
+						desc: 'OpenAI 兼容格式的请求链接（必填），如 https://api.openai.com/v1',
+						control: {
+							type: 'text',
+							key: 'baseUrl',
+							placeholder: 'https://api.openai.com/v1',
+						},
+					},
+					{
+						name: '模型名称',
+						desc: '使用的模型名称（必填），如 gpt-4o-mini',
+						control: {
+							type: 'text',
+							key: 'modelName',
+							placeholder: 'gpt-4o-mini',
+						},
+					},
+					{
+						name: '启用代理',
+						desc: '通过本地 HTTP 代理访问海外 API（如 Clash Verge 混合端口 7897），桌面端生效。',
+						control: {
+							type: 'toggle',
+							key: 'proxyEnabled',
+						},
+					},
+					{
+						name: '代理地址',
+						desc: '代理地址，格式为 http://127.0.0.1:7897。',
+						control: {
+							type: 'text',
+							key: 'proxyUrl',
+							placeholder: 'http://127.0.0.1:7897',
+						},
+					},
+				],
 			},
 			{
-				name: 'API 地址',
-				desc: 'OpenAI 兼容格式的请求链接（必填），如 https://api.openai.com/v1',
-				control: {
-					type: 'text',
-					key: 'baseUrl',
-					placeholder: 'https://api.openai.com/v1',
-				},
+				type: 'group',
+				heading: '请求行为',
+				items: [
+					{
+						name: '启用思考模式',
+						desc: '开启后向 deepseek 等推理模型请求思考模式；思考模式不支持函数调用，且会消耗更多 token。',
+						control: {
+							type: 'toggle',
+							key: 'thinkingEnabled',
+						},
+					},
+					{
+						name: '最长 token',
+						desc: '单次请求生成内容的最大 token 数（256-32768），思考模式下建议调大。',
+						control: {
+							type: 'number',
+							key: 'maxTokens',
+							min: 256,
+							max: 32768,
+							step: 256,
+							placeholder: '4096',
+							defaultValue: 4096,
+						},
+					},
+					{
+						name: '解析重试次数',
+						desc: '模型输出解析失败时的最大自动重试次数（0-3），默认 1。',
+						control: {
+							type: 'number',
+							key: 'retryCount',
+							min: 0,
+							max: 3,
+							step: 1,
+							placeholder: '1',
+							defaultValue: 1,
+						},
+					},
+					{
+						name: '启用流式输出',
+						desc: '关闭后改为非流式请求，便于排查流式相关问题。',
+						control: {
+							type: 'toggle',
+							key: 'streamingEnabled',
+						},
+					},
+				],
 			},
 			{
-				name: '模型名称',
-				desc: '使用的模型名称（必填），如 gpt-4o-mini',
-				control: {
-					type: 'text',
-					key: 'modelName',
-					placeholder: 'gpt-4o-mini',
-				},
-			},
-			{
-				name: '启用代理',
-				desc: '通过本地 HTTP 代理访问海外 API（如 Clash Verge 混合端口 7897），桌面端生效。',
-				control: {
-					type: 'toggle',
-					key: 'proxyEnabled',
-				},
-			},
-			{
-				name: '代理地址',
-				desc: '代理地址，格式为 http://127.0.0.1:7897。',
-				control: {
-					type: 'text',
-					key: 'proxyUrl',
-					placeholder: 'http://127.0.0.1:7897',
-				},
-			},
-			{
-				name: '启用思考模式',
-				desc: '开启后向 deepseek 等推理模型请求思考模式；思考模式不支持函数调用，且会消耗更多 token。',
-				control: {
-					type: 'toggle',
-					key: 'thinkingEnabled',
-				},
-			},
-			{
-				name: '最长 token',
-				desc: '单次请求生成内容的最大 token 数（256-32768），思考模式下建议调大。',
-				control: {
-					type: 'number',
-					key: 'maxTokens',
-					min: 256,
-					max: 32768,
-					step: 256,
-					placeholder: '4096',
-					defaultValue: 4096,
-				},
-			},
-			{
-				name: '解析重试次数',
-				desc: '模型输出解析失败时的最大自动重试次数（0-3），默认 1。',
-				control: {
-					type: 'number',
-					key: 'retryCount',
-					min: 0,
-					max: 3,
-					step: 1,
-					placeholder: '1',
-					defaultValue: 1,
-				},
-			},
-			{
-				name: '启用流式输出',
-				desc: '关闭后改为非流式请求，便于排查流式相关问题。',
-				control: {
-					type: 'toggle',
-					key: 'streamingEnabled',
-				},
-			},
-			{
-				name: '调试模式',
-				desc: '开启后在翻译写作下方显示 AI 请求调试面板与流式输出日志。',
-				control: {
-					type: 'toggle',
-					key: 'debugMode',
-				},
+				type: 'group',
+				heading: '调试',
+				items: [
+					{
+						name: '调试模式',
+						desc: '开启后在面板页签栏中显示调试页签与 AI 请求日志。',
+						control: {
+							type: 'toggle',
+							key: 'debugMode',
+						},
+					},
+				],
 			},
 		];
 	}
@@ -157,6 +175,8 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+
+		new Setting(containerEl).setName('API 配置').setHeading();
 
 		new Setting(containerEl)
 			.setName('API 密钥')
@@ -234,6 +254,8 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 			}
 		}
 
+		new Setting(containerEl).setName('请求行为').setHeading();
+
 		new Setting(containerEl)
 			.setName('启用思考模式')
 			.setDesc('开启后向 deepseek 等推理模型请求思考模式；思考模式不支持函数调用，且会消耗更多 token。')
@@ -309,9 +331,11 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 					}),
 			);
 
+		new Setting(containerEl).setName('调试').setHeading();
+
 		new Setting(containerEl)
 			.setName('调试模式')
-			.setDesc('开启后在翻译写作下方显示 AI 请求调试面板与流式输出日志。')
+			.setDesc('开启后在面板页签栏中显示调试页签与 AI 请求日志。')
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.debugMode)
