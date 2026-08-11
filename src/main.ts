@@ -41,10 +41,6 @@ export default class EnPracticePlugin extends Plugin {
 		});
 	}
 
-	onunload(): void {
-		this.app.workspace.getLeavesOfType(VIEW_TYPE).forEach((leaf) => leaf.detach());
-	}
-
 	/**
 	 * 激活或创建右侧面板
 	 */

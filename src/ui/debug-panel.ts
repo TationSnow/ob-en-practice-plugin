@@ -7,8 +7,9 @@ import {
 } from '../ai/debug-log';
 import {
 	createActionButton,
-	createCollapsibleSection,
-} from './components';
+} from './controls';
+import { createCollapsibleSection } from './sections';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 /**
  * 渲染调试面板。
@@ -19,12 +20,12 @@ export function renderDebugPanel(
 	container: HTMLElement,
 ): () => void {
 	const section = createCollapsibleSection(container, '调试面板');
-	section.addClass('en-debug-panel');
+	section.content.addClass('en-debug-panel');
 
-	const logEl = section.createDiv('en-debug-log');
+	const logEl = section.content.createDiv('en-debug-log');
 	const render = (): void => renderDebugEntries(logEl, getDebugLog());
 
-	const actions = section.createDiv('en-debug-actions');
+	const actions = section.content.createDiv('en-debug-actions');
 	createActionButton(actions, '复制日志', async () => {
 		const entries = getDebugLog();
 		if (entries.length === 0) {
@@ -32,7 +33,7 @@ export function renderDebugPanel(
 			return;
 		}
 		try {
-			await copyToClipboard(buildDebugLogText(entries));
+			await copyTextToClipboard(buildDebugLogText(entries));
 			new Notice('已复制调试日志');
 		} catch (err) {
 			new Notice(
@@ -46,7 +47,7 @@ export function renderDebugPanel(
 	});
 
 	const unsubscribe = subscribeDebugLog(() => {
-		if (!section.isConnected) {
+		if (!section.content.isConnected) {
 			unsubscribe();
 			return;
 		}
@@ -120,15 +121,4 @@ function buildDebugLogText(entries: readonly AiDebugEntry[]): string {
 			return `[${time}] [${entry.feature}] ${entry.message}${detail}`;
 		})
 		.join('\n\n');
-}
-
-/**
- * 将文本复制到剪贴板。
- * @param text 要复制的文本
- */
-async function copyToClipboard(text: string): Promise<void> {
-	if (!navigator.clipboard?.writeText) {
-		throw new Error('当前环境不支持剪贴板 API');
-	}
-	await navigator.clipboard.writeText(text);
 }

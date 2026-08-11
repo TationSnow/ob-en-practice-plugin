@@ -1,211 +1,252 @@
 import { Notice } from 'obsidian';
 import type EnPracticePlugin from '../main';
-import type { Difficulty, TranslationQuestion, TranslationEvaluation } from '../types';
+import type {
+	Difficulty,
+	TranslationEvaluation,
+	TranslationQuestion,
+} from '../types';
 import { DIFFICULTY_LABELS } from '../types';
-import { generateQuestion, evaluateTranslation } from '../ai/translation-writing';
+import {
+	evaluateTranslation,
+	generateQuestion,
+} from '../ai/translation-writing';
+import {
+	createActionButton,
+	createIconButton,
+	createSegmentedControl,
+} from './controls';
 import {
 	createCollapsibleSection,
-	createActionButton,
+	createResultCard,
 	createResultSection,
-} from './components';
+	createTag,
+} from './sections';
+import { createStatusLine } from './status';
+import { createWorkflowStepper } from './workflow';
 import { onGrammarReference } from './panel-events';
 import { renderDebugPanel } from './debug-panel';
+import { copyTextToClipboard } from '../utils/clipboard';
+import { getScoreClass } from '../utils/score';
 
-/** 当前题目状态 */
+/** 当前题目与流程状态 */
 interface WritingState {
 	question: TranslationQuestion | null;
 	difficulty: Difficulty;
+	step: number;
 }
 
-/** DOM 选择器常量 */
-const QUESTION_SELECTOR = '#en-writing-question';
-const EVAL_SELECTOR = '#en-writing-evaluation';
-
 /**
- * 渲染翻译写作模块
+ * 渲染翻译写作模块。
  * @param container 父容器
  * @param plugin 插件实例
  * @param events 面板内共享的事件总线，用于接收语法分析参考句
+ * @returns 清理函数
  */
 export function renderWritingPractice(
 	container: HTMLElement,
 	plugin: EnPracticePlugin,
 	events: EventTarget,
-): void {
-	const section = createCollapsibleSection(container, '翻译写作');
-	const state: WritingState = { question: null, difficulty: 'cet4' };
+): () => void {
+	const root = container.createDiv('en-writing-root');
 
-	// 参考英语输入（可选）
-	const refLabel = section.createEl('label', { text: '参考英语（可选）' });
-	refLabel.addClass('en-field-label');
-	const refInput = section.createEl('textarea', {
-		attr: { placeholder: '输入参考英语表达（可选）', rows: '2' },
+	const state: WritingState = {
+		question: null,
+		difficulty: 'cet4',
+		step: 0,
+	};
+	const stepper = createWorkflowStepper(
+		root,
+		[
+			{ id: 'generate', label: '生成题目' },
+			{ id: 'translate', label: '完成翻译' },
+			{ id: 'evaluate', label: '查看评估' },
+		],
+		0,
+	);
+	const setStep = (step: number): void => {
+		state.step = step;
+		stepper.setStep(step);
+	};
+
+	// 参考英语输入（可选），默认收起以突出主流程
+	const refSection = createCollapsibleSection(root, '参考英语（可选）', false);
+	const refInput = refSection.content.createEl('textarea', {
+		attr: {
+			'aria-label': '参考英语表达（可选）',
+			placeholder: '输入参考英语表达（可选）',
+			rows: '2',
+		},
 	});
 	refInput.addClass('en-text-input');
 
-	// 接收语法分析结果作为参考表达
-	onGrammarReference(events, (sentence) => {
-		refInput.value = sentence;
+	// 难度分段控件
+	const fieldRow = root.createDiv('en-field-row');
+	fieldRow.createSpan('en-field-label').setText('难度');
+	createSegmentedControl<Difficulty>(fieldRow, {
+		ariaLabel: '题目难度',
+		value: state.difficulty,
+		options: (
+			Object.entries(DIFFICULTY_LABELS) as [Difficulty, string][]
+		).map(([value, label]) => ({ value, label })),
+		onChange: (value) => {
+			state.difficulty = value;
+		},
 	});
 
-	// 难度下拉选择
-	const diffContainer = section.createDiv('en-field-row');
-	diffContainer.createEl('label', { text: '难度：' });
-	const diffSelect = diffContainer.createEl('select');
-	for (const [key, label] of Object.entries(DIFFICULTY_LABELS)) {
-		const option = diffSelect.createEl('option', { value: key, text: label });
-		if (key === 'cet4') option.selected = true;
-	}
-	diffSelect.addEventListener('change', () => {
-		state.difficulty = diffSelect.value as Difficulty;
-	});
+	const generateStatus = createStatusLine(root);
 
-	// 生成题目的流式输出状态区
-	const generateStatus = section.createEl('pre');
-	generateStatus.addClass('en-stream-output');
-	generateStatus.addClass('en-hidden');
-	let generateStreamStarted = false;
+	// 题目与评估结果容器（初始隐藏）
+	const questionArea = root.createDiv('en-result-list');
+	questionArea.id = 'en-writing-question';
+	questionArea.addClass('is-hidden');
+	const evalArea = root.createDiv('en-result-list');
+	evalArea.id = 'en-writing-evaluation';
+	evalArea.addClass('is-hidden');
 
-	// 生成按钮
-	createActionButton(section, '一键生成', async () => {
+	/** 生成一道翻译练习题 */
+	async function runGenerate(): Promise<void> {
 		const reference = refInput.value.trim();
-		generateStatus.empty();
-		generateStatus.removeClass('en-hidden');
-		generateStatus.setText(
-			plugin.settings.streamingEnabled ? '正在流式输出...' : '正在处理...',
-		);
-		generateStreamStarted = false;
+		generateStatus.clear();
+		generateStatus.setState('loading');
+		generateStatus.setText('正在生成题目…');
+		generateStatus.show();
 		try {
 			const question = await generateQuestion(
 				reference,
 				state.difficulty,
 				plugin.settings,
-				{
-					onToken: (token) => {
-						if (!generateStreamStarted) {
-							generateStatus.setText('');
-							generateStreamStarted = true;
-						}
-						generateStatus.appendText(token);
-					},
-					debug: plugin.settings.debugMode,
-				},
+				{ debug: plugin.settings.debugMode },
 			);
-			generateStatus.addClass('en-hidden');
 			state.question = question;
-			renderTranslationQuestion(section, question, state.difficulty, plugin);
+			renderTranslationQuestion(
+				questionArea,
+				evalArea,
+				question,
+				state.difficulty,
+				plugin,
+				setStep,
+			);
+			setStep(1);
+			generateStatus.setState('success');
+			generateStatus.setText('题目已生成');
 		} catch (err) {
-			generateStatus.setText(
-				`请求失败：${err instanceof Error ? err.message : '未知错误'}`,
-			);
-			new Notice(
-				`生成失败：${err instanceof Error ? err.message : '未知错误'}`,
-			);
+			generateStatus.setState('error');
+			const message = err instanceof Error ? err.message : '未知错误';
+			generateStatus.setText(`生成失败：${message}`);
+			new Notice(`生成失败：${message}`);
 		}
+	}
+
+	createActionButton(root, '生成题目', runGenerate, {
+		icon: 'sparkles',
+		variant: 'primary',
+		className: 'en-generate-button',
 	});
 
-	// 题目展示区（初始隐藏）
-	const questionArea = section.createDiv('en-result-area');
-	questionArea.id = 'en-writing-question';
-	questionArea.addClass('en-hidden');
-
-	// 评估结果展示区（初始隐藏）
-	const evalArea = section.createDiv('en-result-area');
-	evalArea.id = 'en-writing-evaluation';
-	evalArea.addClass('en-hidden');
+	// 接收语法分析结果作为参考表达
+	const unsubscribeReference = onGrammarReference(events, (sentence) => {
+		refInput.value = sentence;
+		refSection.setOpen(true);
+	});
 
 	// 调试模式：在翻译写作下方展示 AI 请求日志
-	if (plugin.settings.debugMode) {
-		renderDebugPanel(container);
-	}
+	const unsubscribeDebug = plugin.settings.debugMode
+		? renderDebugPanel(root)
+		: () => {};
+
+	return () => {
+		unsubscribeReference();
+		unsubscribeDebug();
+	};
 }
 
 /**
- * 渲染翻译题目
- * @param container 父容器
+ * 渲染翻译题目。
+ * @param questionArea 题目容器
+ * @param evalArea 评估结果容器
  * @param question 题目
  * @param difficulty 难度级别
+ * @param plugin 插件实例
+ * @param setStep 更新工作流步骤
  */
 function renderTranslationQuestion(
-	container: HTMLElement,
+	questionArea: HTMLElement,
+	evalArea: HTMLElement,
 	question: TranslationQuestion,
 	difficulty: Difficulty,
 	plugin: EnPracticePlugin,
+	setStep: (step: number) => void,
 ): void {
-	const questionArea = container.querySelector(
-		QUESTION_SELECTOR,
-	) as HTMLElement;
 	questionArea.empty();
-	questionArea.removeClass('en-hidden');
+	questionArea.removeClass('is-hidden');
 
-	const displaySection = createResultSection(questionArea, '中文语句');
-	displaySection.createEl('p', { text: question.chinese }).addClass('en-chinese-text');
+	const card = createResultCard(questionArea, '题目');
 
+	// 中文语句与提示
+	const displaySection = createResultSection(card, '中文语句');
+	displaySection.createEl('p', { text: question.chinese }).addClass(
+		'en-chinese-text',
+	);
+
+	const tagRow = card.createDiv('en-tag-row');
 	if (question.hint) {
-		const hintSection = createResultSection(questionArea, '提示');
-		hintSection.createEl('p', { text: question.hint }).addClass('en-hint-text');
+		createTag(tagRow, question.hint, 'warning');
+	}
+	if (question.targetGrammar) {
+		createTag(tagRow, question.targetGrammar, 'accent');
 	}
 
 	// 用户翻译输入
-	const inputSection = createResultSection(questionArea, '你的翻译');
+	const inputSection = createResultSection(card, '你的翻译');
 	const userInput = inputSection.createEl('textarea', {
-		attr: { placeholder: '输入你的翻译...', rows: '3' },
+		attr: {
+			'aria-label': '你的翻译',
+			placeholder: '输入你的翻译...',
+			rows: '3',
+		},
 	});
 	userInput.addClass('en-text-input');
 
-	// 评估按钮
-	const evalBtnContainer = questionArea.createDiv('en-button-container');
-	const evalArea = container.querySelector(EVAL_SELECTOR) as HTMLElement;
-
-	evalArea.empty();
-	evalArea.addClass('en-hidden');
-
-	createActionButton(evalBtnContainer, '一键评估', async () => {
-		const userTranslation = userInput.value.trim();
-		if (!userTranslation) {
-			new Notice('请输入你的翻译');
-			return;
-		}
-		evalArea.empty();
-		evalArea.removeClass('en-hidden');
-		const evalStatus = evalArea.createEl('pre');
-		evalStatus.addClass('en-stream-output');
-		evalStatus.setText(
-			plugin.settings.streamingEnabled ? '正在流式输出...' : '正在处理...',
-		);
-		let evalStreamStarted = false;
-		try {
-			const result = await evaluateTranslation(
-				question.chinese,
-				userTranslation,
-				question.hint,
-				difficulty,
-				plugin.settings,
-				{
-					onToken: (token) => {
-						if (!evalStreamStarted) {
-							evalStatus.setText('');
-							evalStreamStarted = true;
-						}
-						evalStatus.appendText(token);
-					},
-					debug: plugin.settings.debugMode,
-				},
-			);
-			renderEvaluation(evalArea, result);
-		} catch (err) {
-			evalStatus.setText(
-				`请求失败：${err instanceof Error ? err.message : '未知错误'}`,
-			);
-			new Notice(
-				`评估失败：${err instanceof Error ? err.message : '未知错误'}`,
-			);
-		}
-	});
+	const actionContainer = card.createDiv('en-card-actions');
+	createActionButton(
+		actionContainer,
+		'评估翻译',
+		async () => {
+			const userTranslation = userInput.value.trim();
+			if (!userTranslation) {
+				new Notice('请输入你的翻译');
+				return;
+			}
+			evalArea.empty();
+			evalArea.removeClass('is-hidden');
+			const evalStatus = createStatusLine(evalArea);
+			evalStatus.setState('loading');
+			evalStatus.setText('正在评估…');
+			evalStatus.show();
+			try {
+				const result = await evaluateTranslation(
+					question.chinese,
+					userTranslation,
+					'',
+					difficulty,
+					plugin.settings,
+					{ debug: plugin.settings.debugMode },
+				);
+				renderEvaluation(evalArea, result);
+				setStep(2);
+			} catch (err) {
+				evalStatus.setState('error');
+				const message = err instanceof Error ? err.message : '未知错误';
+				evalStatus.setText(`评估失败：${message}`);
+				new Notice(`评估失败：${message}`);
+			}
+		},
+		{ icon: 'check', variant: 'primary' },
+	);
 }
 
 /**
- * 渲染评估结果
+ * 渲染评估结果。
  * @param container 容器
  * @param result 评估结果
  */
@@ -214,28 +255,44 @@ function renderEvaluation(
 	result: TranslationEvaluation,
 ): void {
 	container.empty();
-	container.removeClass('en-hidden');
+	container.removeClass('is-hidden');
 
-	const scoreSection = createResultSection(container, '评估结果');
-	scoreSection.createEl('p', {
-		text: `得分：${result.score}/100`,
-	}).addClass('en-score-text');
+	const card = createResultCard(container, '评估结果');
 
-	const strengthsSection = createResultSection(container, '优点');
+	// 分数等级
+	const scoreRow = card.createDiv('en-score-row');
+	const scoreBadge = scoreRow.createSpan('en-score-badge');
+	scoreBadge.addClass(getScoreClass(result.score));
+	scoreBadge.setText(`得分 ${result.score}`);
+	scoreRow.createSpan('en-score-scale').setText('/100');
+
+	// 优点与不足
+	const strengthsSection = createResultSection(card, '优点');
 	const strengthsList = strengthsSection.createEl('ul');
-	for (const s of result.strengths) {
-		strengthsList.createEl('li', { text: s });
+	for (const strength of result.strengths) {
+		strengthsList.createEl('li', { text: strength });
 	}
 
-	const weaknessesSection = createResultSection(container, '不足');
+	const weaknessesSection = createResultSection(card, '不足');
 	const weaknessesList = weaknessesSection.createEl('ul');
-	for (const w of result.weaknesses) {
-		weaknessesList.createEl('li', { text: w });
+	for (const weakness of result.weaknesses) {
+		weaknessesList.createEl('li', { text: weakness });
 	}
 
-	const suggestionsSection = createResultSection(container, '改进建议');
+	// 改进建议
+	const suggestionsSection = createResultSection(card, '改进建议');
 	suggestionsSection.createEl('p', { text: result.suggestions });
 
-	const improvedSection = createResultSection(container, '优化版本');
-	improvedSection.createEl('p', { text: result.improvedVersion }).addClass('en-improved-text');
+	// 优化版本与复制入口
+	const improvedSection = createResultSection(card, '优化版本');
+	const improvedBox = improvedSection.createDiv('en-improved-text');
+	improvedBox.createEl('p', { text: result.improvedVersion });
+	createIconButton(improvedBox, 'copy', '复制优化版本', () => {
+		void copyTextToClipboard(result.improvedVersion)
+			.then(() => new Notice('已复制优化版本'))
+			.catch((err: unknown) => {
+				const message = err instanceof Error ? err.message : String(err);
+				new Notice(`复制失败：${message}`);
+			});
+	});
 }
