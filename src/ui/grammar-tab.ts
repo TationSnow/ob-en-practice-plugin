@@ -65,6 +65,8 @@ export function renderGrammarAnalysis(
 	});
 	createIconButton(toolbar, 'trash-2', '清空输入', () => {
 		textarea.value = '';
+		analyzedInput = '';
+		useForWritingButton.addClass('is-hidden');
 		status.clear();
 		status.hide();
 		resultList.empty();
@@ -75,6 +77,9 @@ export function renderGrammarAnalysis(
 	const status = createStatusLine(composer);
 	const resultList = container.createDiv('en-result-list');
 	resultList.addClass('is-hidden');
+
+	// 最近一次成功分析的完整输入，供“用于翻译写作”按钮使用
+	let analyzedInput = '';
 
 	/** 对输入内容按句分析，逐句渲染结果卡片 */
 	async function runAnalysis(): Promise<void> {
@@ -94,6 +99,8 @@ export function renderGrammarAnalysis(
 		status.setState('loading');
 		status.setText(`正在分析第 1/${sentences.length} 句…`);
 		status.show();
+		analyzedInput = '';
+		useForWritingButton.addClass('is-hidden');
 		resultList.empty();
 		resultList.removeClass('is-hidden');
 
@@ -109,27 +116,45 @@ export function renderGrammarAnalysis(
 					resultList,
 					result,
 					sentence,
-					events,
-					callbacks.onUseForWriting,
 					index + 1,
 					sentences.length,
 				);
 			}
 			status.setState('success');
 			status.setText(`分析完成，共 ${sentences.length} 句`);
+			analyzedInput = input;
+			useForWritingButton.removeClass('is-hidden');
 		} catch (err) {
 			status.setState('error');
 			const message = err instanceof Error ? err.message : '未知错误';
 			status.setText(`分析失败：${message}`);
 			new Notice(`分析失败：${message}`);
+			useForWritingButton.addClass('is-hidden');
 		}
 	}
+
+	// 分析完成后，将整段输入作为参考英语用于翻译写作
+	const useForWritingButton = createActionButton(
+		toolbar,
+		'用于翻译写作',
+		async () => {
+			if (!analyzedInput) {
+				new Notice('请先完成语法分析');
+				return;
+			}
+			dispatchGrammarReference(events, analyzedInput);
+			callbacks.onUseForWriting(analyzedInput);
+			new Notice('已将分析内容填入参考英语表达');
+		},
+		{ icon: 'arrow-right', variant: 'secondary' },
+	);
+	useForWritingButton.addClass('is-hidden');
+
 
 	createActionButton(toolbar, '分析', runAnalysis, {
 		icon: 'wand-2',
 		variant: 'primary',
 	});
-
 	return () => {};
 }
 
@@ -138,8 +163,6 @@ export function renderGrammarAnalysis(
  * @param container 结果列表容器
  * @param result 分析结果
  * @param originalSentence 用户输入的原句
- * @param events 面板内共享的事件总线
- * @param onUseForWriting 切换到翻译写作页的回调
  * @param index 当前句子序号（从 1 开始）
  * @param total 本次分析的句子总数
  */
@@ -147,8 +170,6 @@ function renderGrammarResult(
 	container: HTMLElement,
 	result: GrammarResult,
 	originalSentence: string,
-	events: EventTarget,
-	onUseForWriting: (sentence: string) => void,
 	index: number,
 	total: number,
 ): void {
@@ -204,20 +225,6 @@ function renderGrammarResult(
 			text: component.details ?? '—',
 		}).addClass('en-component-details');
 	}
-
-	// 一键将分析句作为参考表达用于翻译写作
-	const actionContainer = card.createDiv('en-card-actions');
-	createActionButton(
-		actionContainer,
-		'用于翻译写作',
-		async () => {
-			const sentence = originalSentence || result.sentence;
-			dispatchGrammarReference(events, sentence);
-			onUseForWriting(sentence);
-			new Notice('已将该句填入参考英语表达');
-		},
-		{ icon: 'arrow-right', variant: 'secondary' },
-	);
 
 	// 语法信息总览
 	const infoSection = createResultSection(card, '语法信息');

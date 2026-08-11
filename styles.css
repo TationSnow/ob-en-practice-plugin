@@ -129,7 +129,7 @@
 
 /* ===== 通用标题与输入区 ===== */
 .en-panel-heading {
-	margin: 0 0 var(--size-4-3);
+	margin: 0;
 	font-size: var(--font-ui-large);
 	font-weight: var(--font-bold);
 	color: var(--text-normal);
@@ -355,6 +355,9 @@
 }
 
 .en-result-card {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-3);
 	padding: var(--size-4-3);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);
@@ -364,7 +367,7 @@
 }
 
 .en-result-card-title {
-	margin: 0 0 var(--size-4-2);
+	margin: 0;
 	font-size: var(--font-ui-medium);
 	font-weight: var(--font-bold);
 	color: var(--text-normal);
@@ -374,7 +377,6 @@
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--size-4-1);
-	margin-bottom: var(--size-4-3);
 }
 
 .en-tag {
@@ -407,13 +409,8 @@
 }
 
 .en-result-section {
-	margin-top: var(--size-4-3);
 	width: 100%;
 	box-sizing: border-box;
-}
-
-.en-result-section:first-child {
-	margin-top: 0;
 }
 
 .en-result-section h4 {
@@ -438,7 +435,6 @@
 .en-card-actions {
 	display: flex;
 	justify-content: flex-end;
-	margin-top: var(--size-4-3);
 }
 
 /* ===== 语法标注 ===== */
@@ -648,17 +644,8 @@
 	box-sizing: border-box;
 }
 
-.en-field-label {
-	display: inline-flex;
-	align-items: center;
-	font-size: var(--font-ui-small);
-	color: var(--text-muted);
-	flex-shrink: 0;
-}
-
 /* ===== 可折叠区块 ===== */
 .en-collapsible {
-	margin-bottom: var(--size-4-3);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);
 	width: 100%;
@@ -697,7 +684,6 @@
 	display: flex;
 	align-items: center;
 	gap: var(--size-4-2);
-	margin-bottom: var(--size-4-2);
 }
 
 .en-score-badge {
@@ -725,7 +711,8 @@
 .en-improved-text {
 	position: relative;
 	padding: var(--size-4-2);
-	background: var(--background-modifier-success, var(--background-secondary));
+	background: var(--background-secondary);
+	color: var(--text-normal);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-s);
 	font-size: var(--font-ui-medium);
@@ -802,7 +789,6 @@
 	display: flex;
 	flex-direction: column;
 	gap: var(--size-4-2);
-	max-height: 260px;
 	overflow-y: auto;
 	box-sizing: border-box;
 }
