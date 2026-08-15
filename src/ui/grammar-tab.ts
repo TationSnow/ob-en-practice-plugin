@@ -1,7 +1,7 @@
 import { Notice } from 'obsidian';
 import type EnPracticePlugin from '../main';
 import type { GrammarResult } from '../types';
-import { analyzeGrammar } from '../ai/grammar-analysis';
+import { analyzeGrammarRouted } from '../ai/grammar-graph';
 import { splitSentences, stripGrammarAnnotations } from '../utils/sentence';
 import {
 	createActionButton,
@@ -13,6 +13,7 @@ import {
 	createTag,
 } from './sections';
 import { createStatusLine } from './status';
+import { renderImprovementResult } from './improvement-render';
 import {
 	COMPONENT_LABELS,
 	renderHighlightedSentence,
@@ -109,16 +110,30 @@ export function renderGrammarAnalysis(
 				const sentence = sentences[index];
 				if (!sentence) continue;
 				status.setText(`正在分析第 ${index + 1}/${sentences.length} 句…`);
-				const result = await analyzeGrammar(sentence, plugin.settings, {
-					debug: plugin.settings.debugMode,
-				});
-				renderGrammarResult(
-					resultList,
-					result,
+				const result = await analyzeGrammarRouted(
 					sentence,
-					index + 1,
-					sentences.length,
+					plugin.settings,
+					{
+						debug: plugin.settings.debugMode,
+					},
 				);
+				if (result.route === 'improvement' && result.improvement) {
+					renderImprovementResult(
+						resultList,
+						result.improvement,
+						sentence,
+						index + 1,
+						sentences.length,
+					);
+				} else if (result.analysis) {
+					renderGrammarResult(
+						resultList,
+						result.analysis,
+						sentence,
+						index + 1,
+						sentences.length,
+					);
+				}
 			}
 			status.setState('success');
 			status.setText(`分析完成，共 ${sentences.length} 句`);

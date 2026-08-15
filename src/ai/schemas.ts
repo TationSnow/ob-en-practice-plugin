@@ -115,3 +115,42 @@ export const translationEvaluationSchema = z.object({
 }).strict();
 
 export type TranslationEvaluation = z.infer<typeof translationEvaluationSchema>;
+
+/** 语法路由判定结果 schema */
+export const grammarRouterSchema = z.object({
+	hasGrammarIssues: z.boolean().describe('句子是否存在语法问题'),
+	summary: z
+		.string()
+		.optional()
+		.describe('路由判定的简短理由，供调试与界面展示'),
+}).strict();
+
+export type GrammarRouterResult = z.infer<typeof grammarRouterSchema>;
+
+/** 语法改进中的单个错误项 schema */
+const grammarIssueSchema = z.object({
+	text: z.string().describe('出错片段（原句中的连续片段；无法定位时使用完整句子）'),
+	type: z.string().describe('错误类型，如 主谓一致、时态错误'),
+	explanation: z.string().describe('错误原因说明'),
+	suggestion: z.string().describe('针对该错误的修改建议'),
+}).strict();
+
+/** 语法改进中的单个句式项 schema */
+const grammarPatternSchema = z.object({
+	pattern: z.string().describe('使用的句式，如 between...and...'),
+	usage: z.string().describe('句式用法说明'),
+	example: z.string().optional().describe('符合该句式的正确例句'),
+}).strict();
+
+/** 语法改进结果 schema */
+export const grammarImprovementSchema = z.object({
+	sentence: z.string().describe('用户输入的原始句子'),
+	issues: z.array(grammarIssueSchema).describe('语法错误列表'),
+	patterns: z.array(grammarPatternSchema).describe('句子中使用的句式列表'),
+	suggestions: z.array(z.string()).describe('整体改进建议列表'),
+	improvedSentence: z.string().describe('改进后的句子，保留原意'),
+}).strict();
+
+export type GrammarIssue = z.infer<typeof grammarIssueSchema>;
+export type GrammarPattern = z.infer<typeof grammarPatternSchema>;
+export type GrammarImprovementResult = z.infer<typeof grammarImprovementSchema>;

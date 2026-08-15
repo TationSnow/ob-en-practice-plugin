@@ -17,6 +17,7 @@ function createSettings(
 		maxTokens: 4096,
 		proxyEnabled: false,
 		proxyUrl: 'http://127.0.0.1:7897',
+		writingThemes: [],
 		...overrides,
 	};
 }

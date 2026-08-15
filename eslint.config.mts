@@ -39,6 +39,10 @@ export default defineConfig(
 					'tests/score.test.ts',
 					'tests/debug-log.test.ts',
 					'tests/proxy-fetch.test.ts',
+					'tests/grammar-graph.test.ts',
+					'tests/grammar-improvement.test.ts',
+					'tests/writing-options.test.ts',
+					'tests/improvement-render.test.ts',
 					'tests/setup.ts',
 				],
 				},
@@ -48,6 +52,13 @@ export default defineConfig(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		files: ['tests/setup.ts'],
+		rules: {
+			// 测试 mock 中没有 obsidian createDiv 运行时实现，保留原生 DOM 创建方式
+			'obsidianmd/prefer-create-el': 'off',
+		},
+	},
 	{
 		rules: {
 			// URL、API Key 占位符与模型名属于大小写敏感内容，跳过 sentence-case 误报

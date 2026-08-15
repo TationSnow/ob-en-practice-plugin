@@ -28,6 +28,8 @@ export interface EnPracticeSettings {
 	proxyEnabled: boolean;
 	/** HTTP 代理地址，如 http://127.0.0.1:7897 */
 	proxyUrl: string;
+	/** 翻译写作的自定义主题列表，首项“随机”为固定内置选项 */
+	writingThemes: string[];
 }
 
 export const DEFAULT_SETTINGS: EnPracticeSettings = {
@@ -41,6 +43,7 @@ export const DEFAULT_SETTINGS: EnPracticeSettings = {
 	maxTokens: 4096,
 	proxyEnabled: false,
 	proxyUrl: 'http://127.0.0.1:7897',
+	writingThemes: [],
 };
 
 export class EnPracticeSettingTab extends PluginSettingTab {
