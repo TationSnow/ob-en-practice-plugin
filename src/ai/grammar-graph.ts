@@ -5,6 +5,7 @@ import type {
 	GrammarResult,
 	GrammarRouterResult,
 } from '../types';
+import { AiError } from '../types';
 import { analyzeGrammar } from './grammar-analysis';
 import { improveGrammar } from './grammar-improvement';
 import { classifyGrammar } from './grammar-router';
@@ -34,6 +35,8 @@ const GrammarState = Annotation.Root({
 	routerSummary: Annotation<string | undefined>,
 	analysis: Annotation<GrammarResult | undefined>,
 	improvement: Annotation<GrammarImprovementResult | undefined>,
+	// 分析节点因解析失败降级到改进分支时标记，供界面提示用户
+	degraded: Annotation<boolean | undefined>,
 });
 
 /** 语法分析图状态类型 */
@@ -60,9 +63,22 @@ export function createGrammarGraph(deps: GrammarGraphDeps) {
 
 	const analyzeNode = async (
 		state: GrammarGraphState,
-	): Promise<GrammarGraphUpdate> => ({
-		analysis: await deps.analyze(state.sentence),
-	});
+	): Promise<GrammarGraphUpdate> => {
+		try {
+			return { analysis: await deps.analyze(state.sentence) };
+		} catch (err) {
+			// 仅“输出无法解析”时降级到改进分支（其输出结构更宽松，成功率高），
+			// 保证用户至少能拿到一份有价值的结果；网络/配置等错误继续上抛
+			if (err instanceof AiError && err.code === 'PARSE_ERROR') {
+				return {
+					improvement: await deps.improve(state.sentence),
+					route: 'improvement',
+					degraded: true,
+				};
+			}
+			throw err;
+		}
+	};
 
 	const improveNode = async (
 		state: GrammarGraphState,
@@ -92,6 +108,8 @@ export interface GrammarGraphResult {
 	routerSummary?: string;
 	analysis?: GrammarResult;
 	improvement?: GrammarImprovementResult;
+	/** 分析失败后降级到改进分支时为 true，供界面提示 */
+	degraded?: boolean;
 }
 
 /**
@@ -118,5 +136,6 @@ export async function analyzeGrammarRouted(
 		routerSummary: result.routerSummary,
 		analysis: result.analysis,
 		improvement: result.improvement,
+		degraded: result.degraded,
 	};
 }

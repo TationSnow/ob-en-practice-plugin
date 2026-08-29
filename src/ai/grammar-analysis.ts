@@ -3,6 +3,7 @@ import { SystemMessage } from '@langchain/core/messages';
 import type { EnPracticeSettings } from '../settings';
 import type { GrammarResult } from '../types';
 import { createModel } from './index';
+import { normalizeGrammarResult } from './grammar-normalize';
 import { validateGrammarResult } from './grammar-validator';
 import { GRAMMAR_SYSTEM_PROMPT } from './prompts';
 import { grammarSchema } from './schemas';
@@ -29,7 +30,7 @@ export async function analyzeGrammar(
 	options?: StructuredOutputCallOptions,
 ): Promise<GrammarResult> {
 	const model = createModel(settings);
-	return invokeStructured({
+	const result = await invokeStructured({
 		model,
 		prompt: GRAMMAR_PROMPT,
 		schema: grammarSchema,
@@ -48,4 +49,6 @@ export async function analyzeGrammar(
 			'所有 components[].text 和 clauses[].text 必须逐字来自原句，' +
 			'不得改写、省略中间内容或调换语序。',
 	});
+	// 时态重复等“可修复冗余”在结果返回前归一化，避免 UI 展示重复标签
+	return normalizeGrammarResult(result);
 }

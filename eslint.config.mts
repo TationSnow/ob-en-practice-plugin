@@ -21,16 +21,19 @@ export default defineConfig(
 			},
 			parserOptions: {
 				projectService: {
-					maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 20,
+					// 上限略高于测试文件数量，新增测试文件时同步登记下方 allowDefaultProject
+					maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 25,
 					allowDefaultProject: [
 					'eslint.config.mts',
 					'manifest.json',
 					'vitest.config.ts',
+					// 测试文件不在 tsconfig 覆盖范围内，需逐个登记到 default project
 					'tests/prompts.test.ts',
 					'tests/structured-output.test.ts',
 					'tests/model.test.ts',
 					'tests/sentence-utils.test.ts',
 					'tests/grammar-validator.test.ts',
+					'tests/grammar-normalize.test.ts',
 					'tests/panel-events.test.ts',
 					'tests/grammar-highlight.test.ts',
 					'tests/grammar-render.test.ts',

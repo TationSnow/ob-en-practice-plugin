@@ -80,13 +80,12 @@ export const grammarSchema = z.object({
 	clauses: z
 		.array(clauseInfoSchema)
 		.describe('主句与从句列表，level 0 为主句，从句层级逐级递增'),
+	// 时态去重交由 normalizeGrammarResult 后处理，不在 schema 层做业务规则校验：
+	// 弱模型常按“逐谓语列出”的指令输出重复时态，refine 会直接拒绝整个结果
 	tense: z
 		.array(z.string().min(1))
 		.min(1)
-		.describe('所有出现的时态，不重复，按出现顺序排列')
-		.refine((items) => new Set(items).size === items.length, {
-			message: '时态列表不能重复',
-		}),
+		.describe('所有出现的时态，不重复，按出现顺序排列'),
 	voice: z.string().describe('语态'),
 	mood: z.string().describe('语气'),
 	sentenceType: z.string().describe('句型'),

@@ -23,6 +23,21 @@ const OPENAI_STRUCTURED_MODEL_PATTERN = /gpt-4o|gpt-4\.1|gpt-5|o[1-9]/i;
 const RETRY_HINT =
 	'上次输出未通过 JSON 格式或字段校验。请重新输出，只返回一个合法 JSON 对象：不要 Markdown 代码块、不要解释、不要补充文字，必须包含全部字段。';
 
+/** 校验错误摘要最大长度，避免把整段原始输出塞进重试消息 */
+const PARSE_ERROR_DETAIL_LIMIT = 200;
+
+/**
+ * 提取校验错误的可读摘要，用于重试提示与调试日志。
+ * @param err 校验错误
+ * @returns 截断后的错误文本
+ */
+function parseErrorDetail(err: unknown): string {
+	const text = errorMessage(err);
+	return text.length > PARSE_ERROR_DETAIL_LIMIT
+		? `${text.slice(0, PARSE_ERROR_DETAIL_LIMIT)}...`
+		: text;
+}
+
 /** 结构化输出调用参数 */
 export interface InvokeStructuredOptions<T extends z.ZodType> {
 	model: ChatOpenAI;
@@ -229,14 +244,14 @@ async function collectStreamText(
  * @param messages 请求消息
  * @param schema Zod schema
  * @param onToken 流式文本回调
- * @returns 解析结果（失败时为 null）与原始文本
+ * @returns 解析结果（失败时为 null）、原始文本与校验错误摘要
  */
 async function invokeJsonModeStream<T extends z.ZodType>(
 	model: ChatOpenAI,
 	messages: BaseMessage[],
 	schema: T,
 	onToken?: (token: string) => void,
-): Promise<{ parsed: z.infer<T> | null; rawText: string }> {
+): Promise<{ parsed: z.infer<T> | null; rawText: string; parseError?: string }> {
 	const streamModel = model.withConfig({
 		response_format: { type: 'json_object' },
 	});
@@ -247,8 +262,9 @@ async function invokeJsonModeStream<T extends z.ZodType>(
 			rawText,
 		);
 		return { parsed, rawText };
-	} catch {
-		return { parsed: null, rawText };
+	} catch (err) {
+		// 保留错误摘要，供重试提示与调试日志定位具体字段
+		return { parsed: null, rawText, parseError: parseErrorDetail(err) };
 	}
 }
 
@@ -258,14 +274,14 @@ async function invokeJsonModeStream<T extends z.ZodType>(
  * @param messages 请求消息
  * @param schema Zod schema
  * @param onToken 流式文本回调
- * @returns 解析结果（失败时为 null）与原始文本
+ * @returns 解析结果（失败时为 null）、原始文本与校验错误摘要
  */
 async function invokePlainStream<T extends z.ZodType>(
 	model: ChatOpenAI,
 	messages: BaseMessage[],
 	schema: T,
 	onToken?: (token: string) => void,
-): Promise<{ parsed: z.infer<T> | null; rawText: string }> {
+): Promise<{ parsed: z.infer<T> | null; rawText: string; parseError?: string }> {
 	const stream = await model.stream(messages);
 	const rawText = await collectStreamText(stream, onToken);
 	try {
@@ -273,8 +289,9 @@ async function invokePlainStream<T extends z.ZodType>(
 			rawText,
 		);
 		return { parsed, rawText };
-	} catch {
-		return { parsed: null, rawText };
+	} catch (err) {
+		// 保留错误摘要，供重试提示与调试日志定位具体字段
+		return { parsed: null, rawText, parseError: parseErrorDetail(err) };
 	}
 }
 
@@ -308,6 +325,8 @@ export async function invokeStructured<T extends z.ZodType>(
 	const requestId = createRequestId(outputName);
 	// 最近一次附加校验的问题，用于生成下一次重试提示
 	let lastValidationIssues: string[] = [];
+	// 最近一次 schema/JSON 解析失败的错误摘要，用于生成针对性重试提示
+	let lastParseError: string | undefined;
 
 	if (debug) {
 		addDebugEntry({
@@ -324,12 +343,19 @@ export async function invokeStructured<T extends z.ZodType>(
 		for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
 			try {
 				const promptValue = await prompt.invoke(variables);
-				const retryHint = buildRetryHint(
-					validationRetryHint,
-					lastValidationIssues,
-				);
+				// 重试消息按优先级携带最近一次失败原因：
+				// 业务校验问题 > schema 解析错误摘要 > 通用纠错提示
+				let retryHint: string | undefined;
+				if (lastValidationIssues.length > 0) {
+					retryHint = buildRetryHint(
+						validationRetryHint,
+						lastValidationIssues,
+					);
+				} else if (lastParseError) {
+					retryHint = `${RETRY_HINT}具体错误：${lastParseError}`;
+				}
 				const messages =
-					attempt === 0
+					attempt === 0 || !retryHint
 						? promptValue.messages
 						: [
 								...promptValue.messages,
@@ -347,12 +373,13 @@ export async function invokeStructured<T extends z.ZodType>(
 
 				// 流式 JSON Mode 优先用于可见的流式输出
 				if (method === 'jsonMode' && onToken) {
-					const { parsed, rawText } = await invokeJsonModeStream(
-						model,
-						messages,
-						schema,
-						onToken,
-					);
+					const { parsed, rawText, parseError } =
+						await invokeJsonModeStream(
+							model,
+							messages,
+							schema,
+							onToken,
+						);
 					if (debug) {
 						addDebugEntry({
 							requestId,
@@ -362,6 +389,8 @@ export async function invokeStructured<T extends z.ZodType>(
 							detail: `已接收 ${rawText.length} 字符`,
 						});
 					}
+					// 记录解析错误摘要，供同方法重试时生成针对性提示
+					lastParseError = parseError;
 					if (parsed !== null && parsed !== undefined) {
 						const validationIssues = collectValidationIssues(
 							parsed,
@@ -398,10 +427,10 @@ export async function invokeStructured<T extends z.ZodType>(
 							feature: outputName,
 							phase: 'retry',
 							message: '输出未通过校验',
-							detail:
-								attempt < maxAttempts
-									? '准备重试'
-									: '切换下一方法',
+							detail: [
+								attempt < maxAttempts ? '准备重试' : '切换下一方法',
+								lastParseError ? `错误摘要：${lastParseError}` : '',
+							].filter(Boolean).join('；'),
 						});
 					}
 					continue;
@@ -455,16 +484,28 @@ export async function invokeStructured<T extends z.ZodType>(
 					continue;
 				}
 				// parsed 为 null 表示格式校验失败，继续按重试次数重试
+				// withStructuredOutput 解析失败时记录 raw 消息作为错误摘要，
+				// 供重试提示与调试日志携带具体失败原因
+				if (result.raw) {
+					lastParseError = parseErrorDetail(
+						extractTextContent(
+							(result.raw as { content?: unknown }).content ??
+								'原始响应为空',
+						),
+					);
+				}
 				if (debug) {
 					addDebugEntry({
 						requestId,
 						feature: outputName,
 						phase: 'retry',
 						message: '输出未通过校验',
-						detail:
-							attempt < maxAttempts
-								? '准备重试'
-								: '切换下一方法',
+						detail: [
+							attempt < maxAttempts ? '准备重试' : '切换下一方法',
+							lastParseError ? `错误摘要：${lastParseError}` : '',
+						]
+							.filter(Boolean)
+							.join('；'),
 					});
 				}
 			} catch (err) {
@@ -488,25 +529,43 @@ export async function invokeStructured<T extends z.ZodType>(
 	let rawText = '';
 	try {
 		const promptValue = await prompt.invoke(variables);
+		// 兜底请求携带最近一次失败原因，避免模型盲目重答同一份输出
+		const fallbackMessages = [
+			...promptValue.messages,
+			...(lastParseError || lastValidationIssues.length > 0
+				? [
+						new HumanMessage(
+							`${RETRY_HINT}具体错误：${
+								lastValidationIssues.length > 0
+									? lastValidationIssues.join('；')
+									: lastParseError ?? '未知'
+							}`,
+						),
+					]
+				: []),
+		];
 		if (debug) {
 			addDebugEntry({
 				requestId,
 				feature: outputName,
 				phase: 'fallback',
 				message: '使用普通文本兜底',
+				detail: lastParseError
+					? `携带失败原因：${lastParseError}`
+					: '无失败原因，直接重新请求',
 			});
 		}
 		if (onToken) {
 			const fallback = await invokePlainStream(
 				model,
-				promptValue.messages,
+				fallbackMessages,
 				schema,
 				onToken,
 			);
 			parsed = fallback.parsed;
 			rawText = fallback.rawText;
 		} else {
-			const message = await model.invoke(promptValue.messages);
+			const message = await model.invoke(fallbackMessages);
 			rawText = extractTextContent(message.content);
 			if (!rawText) {
 				rawText = extractReasoningContent(message);

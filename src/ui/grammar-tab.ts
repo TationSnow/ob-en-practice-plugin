@@ -1,6 +1,6 @@
 import { Notice } from 'obsidian';
 import type EnPracticePlugin from '../main';
-import type { GrammarResult } from '../types';
+import { AiError, type GrammarResult } from '../types';
 import { analyzeGrammarRouted } from '../ai/grammar-graph';
 import { splitSentences, stripGrammarAnnotations } from '../utils/sentence';
 import {
@@ -105,18 +105,35 @@ export function renderGrammarAnalysis(
 		resultList.empty();
 		resultList.removeClass('is-hidden');
 
+		// 本次运行是否有句子从成分分析降级为改进建议
+		let degraded = false;
+		// 流式输出累计缓冲，用于在状态栏展示生成预览
+		let streamBuffer = '';
+
 		try {
 			for (let index = 0; index < sentences.length; index += 1) {
 				const sentence = sentences[index];
 				if (!sentence) continue;
+				// 每句开始时重置流式缓冲
+				streamBuffer = '';
 				status.setText(`正在分析第 ${index + 1}/${sentences.length} 句…`);
 				const result = await analyzeGrammarRouted(
 					sentence,
 					plugin.settings,
 					{
 						debug: plugin.settings.debugMode,
+						// 把流式分片接入状态栏，让“启用流式输出”设置真正可见
+						onToken: (token) => {
+							streamBuffer = (streamBuffer + token).slice(-120);
+							status.setText(
+								`正在分析第 ${index + 1}/${sentences.length} 句… ` +
+									`${streamBuffer.trimStart().slice(-40)}`,
+							);
+						},
 					},
 				);
+				// 记录降级标记，循环结束后统一提示
+				degraded = degraded || result.degraded === true;
 				if (result.route === 'improvement' && result.improvement) {
 					renderImprovementResult(
 						resultList,
@@ -139,9 +156,20 @@ export function renderGrammarAnalysis(
 			status.setText(`分析完成，共 ${sentences.length} 句`);
 			analyzedInput = input;
 			useForWritingButton.removeClass('is-hidden');
+			if (degraded) {
+				// 分析解析失败已自动降级，告知用户结果来自改进助手
+				new Notice('部分句子成分分析失败，已改用改进建议展示');
+			}
 		} catch (err) {
 			status.setState('error');
-			const message = err instanceof Error ? err.message : '未知错误';
+			// 解析失败属于“模型格式问题”，原始 JSON 只留在调试面板，
+			// 界面只展示面向用户的简短文案
+			const message =
+				err instanceof AiError && err.code === 'PARSE_ERROR'
+					? '模型输出格式校验失败，请重试或换用更强的模型'
+					: err instanceof Error
+						? err.message
+						: '未知错误';
 			status.setText(`分析失败：${message}`);
 			new Notice(`分析失败：${message}`);
 			useForWritingButton.addClass('is-hidden');

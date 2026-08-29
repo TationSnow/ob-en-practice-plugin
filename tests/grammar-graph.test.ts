@@ -3,9 +3,10 @@ import {
 	createGrammarGraph,
 	type GrammarGraphDeps,
 } from '../src/ai/grammar-graph';
-import type {
-	GrammarImprovementResult,
-	GrammarResult,
+import {
+	AiError,
+	type GrammarImprovementResult,
+	type GrammarResult,
 } from '../src/types';
 
 const SENTENCE = 'The cat sat on the mat.';
@@ -75,6 +76,41 @@ describe('createGrammarGraph', () => {
 		expect(deps.improve).not.toHaveBeenCalled();
 		expect(result.route).toBe('analysis');
 		expect(result.analysis).toEqual(ANALYSIS_RESULT);
+	});
+
+	it('分析节点解析失败时降级到改进分支并标记 degraded', async () => {
+		const deps = createDeps({
+			analyze: vi
+				.fn<GrammarGraphDeps['analyze']>()
+				.mockRejectedValue(
+					new AiError('PARSE_ERROR', '模型输出无法解析'),
+				),
+		});
+
+		const result = await createGrammarGraph(deps).invoke({
+			sentence: SENTENCE,
+		});
+
+		// 分析失败后应调用改进节点并标记降级
+		expect(deps.analyze).toHaveBeenCalledWith(SENTENCE);
+		expect(deps.improve).toHaveBeenCalledWith(SENTENCE);
+		expect(result.route).toBe('improvement');
+		expect(result.improvement).toEqual(IMPROVEMENT_RESULT);
+		expect(result.degraded).toBe(true);
+	});
+
+	it('分析节点抛出非解析错误时不降级，错误继续上抛', async () => {
+		const deps = createDeps({
+			analyze: vi
+				.fn<GrammarGraphDeps['analyze']>()
+				.mockRejectedValue(new AiError('API_ERROR', '网络错误')),
+		});
+
+		await expect(
+			createGrammarGraph(deps).invoke({ sentence: SENTENCE }),
+		).rejects.toMatchObject({ code: 'API_ERROR' });
+		// 非解析错误不应触发改进分支
+		expect(deps.improve).not.toHaveBeenCalled();
 	});
 
 	it('存在语法问题时路由到改进分支', async () => {
