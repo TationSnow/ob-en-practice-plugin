@@ -287,6 +287,252 @@ describe('repairGrammarResult', () => {
 		);
 	});
 
+	it('回归：子成分挂载层级与文本不符时应提升为平级成分', () => {
+		// 取自真实报错日志的句型：两个宾语从句被挂在较短的定语成分下，
+		// 文本上并不包含在父成分内；信息完整，只是挂载层级错误
+		const input =
+			'Whorf came to believe in a sort of linguistic determinism which, in its strongest form, states that language imprisons the mind, and that the grammatical patterns in a language can produce far-reaching consequences for the culture of a society.';
+		const result: GrammarResult = {
+			sentence: input,
+			components: [
+				{ text: 'Whorf', type: 'subject' },
+				{
+					text: 'came to believe',
+					type: 'predicate',
+					details: '谓语动词：believe；一般过去时，主动语态',
+				},
+				{ text: 'in a sort of linguistic determinism', type: 'adverbial' },
+				{
+					text: 'which, in its strongest form, states',
+					type: 'attributive',
+					children: [
+						{
+							text: 'that language imprisons the mind',
+							type: 'object',
+							children: [
+								{ text: 'language', type: 'subject' },
+								{
+									text: 'imprisons',
+									type: 'predicate',
+									details: '谓语动词：imprisons；一般现在时',
+								},
+								{ text: 'the mind', type: 'object' },
+							],
+						},
+						{
+							text: 'and that the grammatical patterns in a language can produce far-reaching consequences for the culture of a society',
+							type: 'object',
+						},
+					],
+				},
+			],
+			clauses: [
+				{
+					text: input,
+					level: 0,
+					type: '主句',
+					function: '全句主干',
+				},
+				{
+					text: 'which, in its strongest form, states that language imprisons the mind, and that the grammatical patterns in a language can produce far-reaching consequences for the culture of a society',
+					level: 1,
+					type: '定语从句',
+					function: '修饰 linguistic determinism',
+				},
+				{
+					text: 'that language imprisons the mind',
+					level: 2,
+					type: '宾语从句',
+					function: '作 states 的宾语',
+				},
+				{
+					text: 'and that the grammatical patterns in a language can produce far-reaching consequences for the culture of a society',
+					level: 2,
+					type: '宾语从句',
+					function: '与前面宾语从句并列',
+				},
+			],
+			tense: ['一般过去时', '一般现在时'],
+			voice: '主动语态',
+			mood: '陈述语气',
+			sentenceType: '复合句',
+			structureSummary: '主句 + 定语从句 + 两个并列宾语从句。',
+			translation: '测试翻译。',
+		};
+
+		repairGrammarResult(result, input);
+
+		// 两个宾语从句被提升为平级成分，父成分不再保留 children
+		expect(result.components).toHaveLength(6);
+		expect(result.components[3]?.children).toBeUndefined();
+		expect(result.components[4]?.text).toBe(
+			'that language imprisons the mind',
+		);
+		expect(result.components[4]?.children).toHaveLength(3);
+		expect(result.components[5]?.text).toBe(
+			'and that the grammatical patterns in a language can produce far-reaching consequences for the culture of a society',
+		);
+		// 修复后整个结果通过校验，无需重新请求
+		expect(validateGrammarResult(result, input)).toEqual([]);
+	});
+
+	it('子成分文本是幻觉（原句中不存在）时保留原样交由校验报错', () => {
+		const result: GrammarResult = {
+			...VALID_RESULT,
+			components: [
+				{
+					text: 'true loyalty',
+					type: 'object',
+					children: [{ text: 'loyalty beyond words', type: 'other' }],
+				},
+			],
+		};
+		repairGrammarResult(result, SENTENCE);
+		// 文本在原句中不存在，无法提升，保持原样由校验器拦截
+		expect(result.components[0]?.children?.[0]?.text).toBe(
+			'loyalty beyond words',
+		);
+		expect(validateGrammarResult(result, SENTENCE)).toContain(
+			'子成分未包含在父成分中：loyalty beyond words',
+		);
+	});
+
+	it('回归：整句从句作为无 children 的单个成分时应从从句数组合成 children', () => {
+		// 取自真实日志：定语从句整体作为 attributive 成分、无 children，
+		// 渲染层只能整段灰白；clauses 数组中的类型与层级信息仍可用来恢复结构
+		const input =
+			'Whorf came to believe in a sort of linguistic determinism which, in its strongest form, states that language imprisons the mind, and that the grammatical patterns in a language can produce far-reaching consequences for the culture of a society.';
+		const clauseTextL2b =
+			'that the grammatical patterns in a language can produce far-reaching consequences for the culture of a society';
+		const result: GrammarResult = {
+			sentence: input,
+			components: [
+				{ text: 'Whorf', type: 'subject' },
+				{
+					text: 'came to believe',
+					type: 'predicate',
+					details: '谓语动词：believe；一般过去时，主动语态',
+				},
+				{ text: 'in a sort of linguistic determinism', type: 'object' },
+				{
+					text: 'which, in its strongest form, states that language imprisons the mind, and that the grammatical patterns in a language can produce far-reaching consequences for the culture of a society',
+					type: 'attributive',
+				},
+			],
+			clauses: [
+				{
+					text: input,
+					level: 0,
+					type: '主句',
+					function: '全句主干',
+				},
+				{
+					text: 'which, in its strongest form, states that language imprisons the mind, and that the grammatical patterns in a language can produce far-reaching consequences for the culture of a society',
+					level: 1,
+					type: '定语从句',
+					function: '修饰 linguistic determinism',
+				},
+				{
+					text: 'that language imprisons the mind',
+					level: 2,
+					type: '宾语从句',
+					function: '作 states 的宾语',
+				},
+				{
+					text: clauseTextL2b,
+					level: 2,
+					type: '宾语从句',
+					function: '与前面宾语从句并列',
+				},
+			],
+			tense: ['一般过去时', '一般现在时'],
+			voice: '主动语态',
+			mood: '陈述语气',
+			sentenceType: '复合句',
+			structureSummary: '主句 + 定语从句 + 两个并列宾语从句。',
+			translation: '测试翻译。',
+		};
+
+		repairGrammarResult(result, input);
+
+		// 两个嵌套宾语从句按类型映射合成为 object 子成分
+		const children = result.components[3]?.children;
+		expect(children).toHaveLength(2);
+		expect(children?.[0]?.text).toBe('that language imprisons the mind');
+		expect(children?.[0]?.type).toBe('object');
+		expect(children?.[1]?.text).toBe(clauseTextL2b);
+		expect(children?.[1]?.type).toBe('object');
+		expect(validateGrammarResult(result, input)).toEqual([]);
+	});
+
+	it('嵌套从句应递归合成多层 children', () => {
+		const input = 'It supports the idea which suggests that A matters.';
+		const result: GrammarResult = {
+			sentence: input,
+			components: [
+				{ text: 'It supports', type: 'predicate' },
+				{
+					text: 'the idea which suggests that A matters',
+					type: 'object',
+				},
+			],
+			clauses: [
+				{
+					text: input,
+					level: 0,
+					type: '主句',
+					function: '全句主干',
+				},
+				{
+					text: 'which suggests that A matters',
+					level: 1,
+					type: '定语从句',
+					function: '修饰 the idea',
+				},
+				{
+					text: 'that A matters',
+					level: 2,
+					type: '宾语从句',
+					function: '作 suggests 的宾语',
+				},
+			],
+			tense: ['一般现在时'],
+			voice: '主动语态',
+			mood: '陈述语气',
+			sentenceType: '复合句',
+			structureSummary: '主句 + 定语从句 + 宾语从句。',
+			translation: '测试翻译。',
+		};
+
+		repairGrammarResult(result, input);
+
+		// 一级定语从句合成进 children，其内部的二级宾语从句继续递归合成
+		const firstChild = result.components[1]?.children?.[0];
+		expect(firstChild?.text).toBe('which suggests that A matters');
+		expect(firstChild?.type).toBe('attributive');
+		expect(firstChild?.children?.[0]?.text).toBe('that A matters');
+		expect(firstChild?.children?.[0]?.type).toBe('object');
+		expect(validateGrammarResult(result, input)).toEqual([]);
+	});
+
+	it('不包含从句文本的成分不做合成', () => {
+		const result: GrammarResult = {
+			...VALID_RESULT,
+			components: [{ text: 'true loyalty', type: 'object' }],
+			clauses: [
+				{
+					text: SENTENCE,
+					level: 0,
+					type: '主句',
+					function: '全句主干',
+				},
+			],
+		};
+		repairGrammarResult(result, SENTENCE);
+		// 成分内没有嵌套从句文本，不应凭空合成 children
+		expect(result.components[0]?.children).toBeUndefined();
+	});
+
 	it('回归：用户输入无句号而模型补句号时应整体自动修复', () => {
 		// 取自真实报错日志的句子：输入无句尾句号，模型输出全部带句号
 		const input =

@@ -34,6 +34,15 @@ describe('ChatPromptTemplate 编译', () => {
 		expect(sysMsg).toContain('原样保留');
 		// 字段值引用词语必须用中文引号，避免未转义引号破坏 JSON
 		expect(sysMsg).toContain('未转义的英文双引号');
+		// 示例必须与“包含从句的成分必须提供 children”规则自洽：
+		// 主示例的主语成分（含定语从句）应带 children 拆解（“定语从句的主语”仅出现在修正后的示例中）
+		expect(sysMsg).toContain('定语从句的主语');
+		// 显式禁令：从句整块文本不得作为无 children 的单个成分
+		expect(sysMsg).toContain('严禁');
+		// children 必须是父成分文本的子串；不属于父成分文本范围的从句应作平级成分
+		expect(sysMsg).toContain('不得强行嵌套');
+		// 引导词等列表外成分必须使用 other，避免模型发明未定义类型破坏枚举
+		expect(sysMsg).toContain('一律使用 other');
 	});
 
 	it('翻译生成 prompt 应能正常编译并执行 invoke', async () => {

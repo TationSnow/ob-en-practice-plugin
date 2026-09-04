@@ -1,9 +1,27 @@
-import type { GrammarResult, SentenceComponent } from '../types';
+import type {
+	ComponentType,
+	GrammarResult,
+	SentenceComponent,
+} from '../types';
 import { findComponentSpan } from '../utils/sentence';
 import { SUBORDINATE_CLAUSE_TYPES } from './schemas';
 
 /** 句尾标点（含中英文），模型常给句尾补句号，修复时用于剥除 */
 const TRAILING_PUNCTUATION = /[.。!！?？;；,，、"'”’）)\]}]+$/;
+
+/**
+ * 从句类型到成分类型的映射，供合成 children 时推导成分角色。
+ * 从句在句中承担的成分功能与类型名一致：宾语从句作宾语、状语从句作状语等。
+ */
+const CLAUSE_TYPE_TO_COMPONENT_TYPE: Record<string, ComponentType> = {
+	宾语从句: 'object',
+	主语从句: 'subject',
+	表语从句: 'complement',
+	定语从句: 'attributive',
+	状语从句: 'adverbial',
+	同位语从句: 'other',
+	比较从句: 'adverbial',
+};
 
 /**
  * 校验语法分析结果是否满足“连续片段、结构完整”的要求。
@@ -71,6 +89,75 @@ export function validateGrammarResult(
 }
 
 /**
+ * 为“包含从句文本但没有 children”的成分合成子成分（递归）。
+ * 模型偶尔会把整个从句作为单个成分返回而不拆解内部结构；
+ * 此时 clauses 数组中的从句类型与层级信息仍然可用：
+ * 按从句类型映射成分角色（宾语从句→宾语、定语从句→定语等），
+ * 把嵌套在成分文本内的从句文本合成为 children，恢复渲染所需的结构层次。
+ * 这是基于模型自身输出的结构性修复，不能恢复从句内部的成分细节；
+ * 已有 children 的成分只递归向下，不做合成。
+ * @param components 当前层级的成分列表（原地修改）
+ * @param clauses 从句信息
+ */
+function synthesizeClauseChildren(
+	components: SentenceComponent[],
+	clauses: GrammarResult['clauses'],
+): void {
+	for (const component of components) {
+		if (component.children?.length) {
+			synthesizeClauseChildren(component.children, clauses);
+			continue;
+		}
+		const children = buildClauseChildrenFromClauses(component.text, clauses);
+		if (children) {
+			component.children = children;
+			// 合成出的从句子成分内部可能还嵌套更深层从句，继续向下合成
+			synthesizeClauseChildren(children, clauses);
+		}
+	}
+}
+
+/**
+ * 从从句列表中收集嵌套在成分文本内的从句区间，按类型映射为子成分。
+ * 与成分文本完全一致的从句（成分本身就是该从句）以及与已收集区间
+ * 重叠的从句会被跳过；从句区间之间的连接文本留给父成分底色渲染。
+ * @param text 成分文本
+ * @param clauses 从句信息
+ * @returns 合成的子成分列表；无可合成内容时返回 null
+ */
+function buildClauseChildrenFromClauses(
+	text: string,
+	clauses: GrammarResult['clauses'],
+): SentenceComponent[] | null {
+	const spans: { start: number; end: number; type: ComponentType }[] = [];
+	for (const clause of clauses) {
+		// level 0 主句不参与子成分合成
+		if (clause.level <= 0) continue;
+		const span = findComponentSpan(text, clause.text, 0);
+		if (!span) continue;
+		// 成分本身就是该从句时跳过，避免合成出与父成分等大的子成分
+		if (span.start === 0 && span.end === text.length) continue;
+		// 与已收集区间重叠的从句交由递归处理（作为外层从句的子成分）
+		if (spans.some((item) => span.start < item.end && item.start < span.end)) {
+			continue;
+		}
+		spans.push({
+			start: span.start,
+			end: span.end,
+			type: CLAUSE_TYPE_TO_COMPONENT_TYPE[clause.type] ?? 'other',
+		});
+	}
+	if (spans.length === 0) {
+		return null;
+	}
+	spans.sort((a, b) => a.start - b.start);
+	return spans.map((span) => ({
+		text: text.slice(span.start, span.end),
+		type: span.type,
+	}));
+}
+
+/**
  * 递归校验成分及其嵌套子成分：
  * 子成分必须包含在父成分中，且都是原句的连续片段。
  * @param component 当前成分
@@ -110,12 +197,66 @@ export function repairGrammarResult(
 	const normalizedInput = sentence.trim();
 	repairSentenceField(result, normalizedInput);
 
+	// 先修复树拓扑：把文本上不属于父成分的子成分提升为平级成分，
+	// 否则后续按“父成分文本”修复子成分文本时无从下手
+	repairComponentTopology(result.components, normalizedInput);
+
 	// 分句与顶层成分都在原句范围内修复
 	for (const clause of result.clauses) {
 		repairSpanText(clause, normalizedInput);
 	}
 	for (const component of result.components) {
 		repairComponentTree(component, normalizedInput);
+	}
+
+	// 最后为“包含从句文本但没有 children”的成分合成结构。
+	// 提示词约束只能降低该形态的概率，无法根除；合成后渲染层即可按
+	// 成分类型着色，避免整段从句只剩灰白底色。
+	synthesizeClauseChildren(result.components, result.clauses);
+}
+
+/**
+ * 修复成分树拓扑：把“文本不在父成分文本内”的子成分提升为父成分的平级成分。
+ * 模型偶尔会输出树拓扑与文本片段不一致的结果——把从句成分挂到某个成分的
+ * children 下，但其文本并不包含在父成分文本内（例如把两个宾语从句挂到较短的
+ * 定语成分下）。这类输出信息本身完整，只是挂载层级错误：
+ * 提升后即等价于正确的平铺结构，无需重新请求。
+ * 子成分文本在原句中不存在（真实幻觉）时保留原样，交由 validateGrammarResult 报错。
+ * @param components 当前层级的成分列表（原地修改）
+ * @param sentence 原句
+ */
+function repairComponentTopology(
+	components: SentenceComponent[],
+	sentence: string,
+): void {
+	for (let index = 0; index < components.length; index += 1) {
+		const component = components[index] as SentenceComponent;
+		// 先递归修复子树，被提升的成分在挂载前已完成自身的拓扑修复
+		if (component.children?.length) {
+			repairComponentTopology(component.children, sentence);
+		}
+		const children = component.children;
+		if (!children?.length) {
+			continue;
+		}
+		const kept: SentenceComponent[] = [];
+		const hoisted: SentenceComponent[] = [];
+		for (const child of children) {
+			const inParent = findComponentSpan(component.text, child.text, 0);
+			const inSentence = findComponentSpan(sentence, child.text, 0);
+			if (!inParent && inSentence) {
+				hoisted.push(child);
+			} else {
+				kept.push(child);
+			}
+		}
+		if (hoisted.length > 0) {
+			// 全部提升后清空 children；保留的子成分继续留在父成分内
+			component.children = kept.length > 0 ? kept : undefined;
+			// 插入到父成分之后，保持与原句出现顺序一致
+			components.splice(index + 1, 0, ...hoisted);
+			index += hoisted.length;
+		}
 	}
 }
 

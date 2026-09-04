@@ -127,14 +127,26 @@ describe('Zod schema 校验', () => {
 		).toThrow();
 	});
 
-	it('合法语法结果应通过，非法成分类型应被拒绝', () => {
+	it('合法语法结果应通过校验', () => {
 		expect(grammarSchema.parse(VALID_GRAMMAR)).toEqual(VALID_GRAMMAR);
-		expect(() =>
-			grammarSchema.parse({
-				...VALID_GRAMMAR,
-				components: [{ text: 'x', type: 'invalid' }],
-			}),
-		).toThrow();
+	});
+
+	it('未知成分类型应归入 other 而不是整体拒绝（回归：conjunction）', () => {
+		// 模型可能发明封闭列表外的类型（如把引导词标注为 conjunction），
+		// 整份输出因单个字段作废得不偿失，统一归入 other
+		const parsed = grammarSchema.parse({
+			...VALID_GRAMMAR,
+			components: [{ text: 'that', type: 'conjunction' }],
+		});
+		expect(parsed.components[0]?.type).toBe('other');
+	});
+
+	it('成分类型的大小写与空白偏差应归一化', () => {
+		const parsed = grammarSchema.parse({
+			...VALID_GRAMMAR,
+			components: [{ text: 'The cat', type: ' Subject ' }],
+		});
+		expect(parsed.components[0]?.type).toBe('subject');
 	});
 
 	it('未知字段应被剥离而不是整体拒绝', () => {

@@ -38,6 +38,30 @@ export const SUBORDINATE_CLAUSE_TYPES = CLAUSE_TYPES.filter(
 /** 从句类型 */
 export type ClauseType = (typeof CLAUSE_TYPES)[number];
 
+/**
+ * 归一化模型输出的成分类型。
+ * 封闭枚举对模型过于苛刻：它偶尔会发明列表外的类型
+ * （如把从句引导词标注为 conjunction），整份输出因单个字段作废得不偿失。
+ * 规则：字符串去首尾空白并转小写后能命中类型列表则归位，其余一律归入 other。
+ * @param value 模型输出的类型值
+ * @returns 合法的成分类型
+ */
+function normalizeComponentType(value: unknown): ComponentType {
+	if (typeof value === 'string') {
+		const normalized = value.trim().toLowerCase();
+		if ((COMPONENT_TYPES as readonly string[]).includes(normalized)) {
+			return normalized as ComponentType;
+		}
+	}
+	return 'other';
+}
+
+/** 成分类型 schema：对模型输出宽容，未知类型归入 other 而非整体拒绝 */
+const componentTypeSchema = z.preprocess(
+	normalizeComponentType,
+	z.enum(COMPONENT_TYPES),
+);
+
 /** 语法分析中的单个成分结构（递归：children 内可继续嵌套） */
 export interface SentenceComponent {
 	text: string;
@@ -46,14 +70,18 @@ export interface SentenceComponent {
 	children?: SentenceComponent[];
 }
 
-/** 语法分析中的单个成分 schema（递归定义，children 允许嵌套） */
-const sentenceComponentSchema: z.ZodType<SentenceComponent> = z.lazy(() =>
+/** 语法分析中的单个成分 schema（递归定义，children 允许嵌套；输入类型为 unknown 因 type 字段经 preprocess 归一化） */
+const sentenceComponentSchema: z.ZodType<
+	SentenceComponent,
+	z.ZodTypeDef,
+	unknown
+> = z.lazy(() =>
 	z.object({
 		text: z
 			.string()
 			.min(1)
 			.describe('成分的完整文本，必须是原句中的连续字符片段，且包含全部修饰语'),
-		type: z.enum(COMPONENT_TYPES).describe('成分类型'),
+		type: componentTypeSchema.describe('成分类型'),
 		details: z
 			.string()
 			.optional()

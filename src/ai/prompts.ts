@@ -31,7 +31,24 @@ JSON 示例：
     {
       "text": "A friend who is always honest",
       "type": "subject",
-      "details": "名词短语作主语，内含定语从句 who is always honest 修饰 A friend"
+      "details": "名词短语作主语，内含定语从句 who is always honest 修饰 A friend",
+      "children": [
+        {
+          "text": "who",
+          "type": "subject",
+          "details": "定语从句的主语"
+        },
+        {
+          "text": "is",
+          "type": "predicate",
+          "details": "谓语动词：is；一般现在时"
+        },
+        {
+          "text": "always honest",
+          "type": "complement",
+          "details": "形容词短语作表语"
+        }
+      ]
     },
     {
       "text": "will indeed find",
@@ -96,12 +113,14 @@ JSON 示例：
 }
 
 字段说明：
-- components.type 只能取：subject、predicate、object、complement、adverbial、attributive、other
+- components.type 只能取：subject、predicate、object、complement、adverbial、attributive、other；从属连词、并列连词等引导词如需单独标注，一律使用 other，不得使用列表之外的类型
 - clauses 必须包含 level 0 的主句，再按嵌套层级列出从句（level 1、2...）；主句 type 为"主句"，从句 type 只能取：定语从句、状语从句、主语从句、宾语从句、表语从句、同位语从句、比较从句
 - clauses 中每个 function 都要说明该从句在句中的作用，如修饰主语、作条件状语等
 - tense 数组必须列出所有出现的时态（含从句内谓语），不可重复，按出现顺序排列
 - predicate 成分的 details 必须以"谓语动词：<原句中的动词>"开头，标注谓语动词核心词（不含助动词、情态动词和状语），供前端紫色高亮使用；谓语成分的 text 仍保持完整连续片段
 - 包含从句的成分必须提供 children，从句内部的主语、谓语、宾语等子成分逐层嵌套；子成分的颜色规则与整句一致（主语蓝色、谓语动词紫色、宾语橙色）
+- 严禁把从句整块文本作为单个成分而不提供 children（包括定语从句整体作定语的场景）：凡成分文本内包含从句文本，必须继续拆出从句内部的主语、谓语、宾语等子成分，且从句内的谓语同样必须标注"谓语动词：xxx"
+- children 的 text 必须能在父成分的 text 中逐字找到（是父成分文本的子串），并按在父成分中出现的顺序排列；若从句文本不属于某成分的文本范围，应作为与该成分平级的成分列出，不得强行嵌套为该成分的 children
 - sentence 字段必须与用户输入完全一致：逐字符原样保留（含所有标点与空格），不得增删任何标点（尤其是句尾句号）、不得改写或删减
 - 所有 components[].text 和 clauses[].text 都必须是原句中的连续字符片段
 - translation 字段给出整句准确、通顺、符合中文表达习惯的翻译
