@@ -11,10 +11,15 @@ import {
 	generateQuestion,
 } from '../ai/translation-writing';
 import {
+	createRandomSeed,
+	RANDOM_THEME,
+	resolveSelectedTheme,
+} from '../utils/writing-options';
+import {
 	createActionButton,
-	createIconButton,
 	createSegmentedControl,
 } from './controls';
+import { createCopyableText } from './copy-block';
 import {
 	createCollapsibleSection,
 	createResultCard,
@@ -23,14 +28,16 @@ import {
 } from './sections';
 import { createStatusLine } from './status';
 import { createWorkflowStepper } from './workflow';
+import { createSeedField, createThemeSelect } from './writing-controls';
 import { onGrammarReference } from './panel-events';
-import { copyTextToClipboard } from '../utils/clipboard';
 import { getScoreClass } from '../utils/score';
 
 /** 当前题目与流程状态 */
 interface WritingState {
 	question: TranslationQuestion | null;
 	difficulty: Difficulty;
+	theme: string;
+	seed: string;
 	step: number;
 }
 
@@ -51,6 +58,8 @@ export function renderWritingPractice(
 	const state: WritingState = {
 		question: null,
 		difficulty: 'cet4',
+		theme: RANDOM_THEME,
+		seed: '',
 		step: 0,
 	};
 	const stepper = createWorkflowStepper(
@@ -62,11 +71,18 @@ export function renderWritingPractice(
 		],
 		0,
 	);
+
 	const setStep = (step: number): void => {
 		state.step = step;
 		stepper.setStep(step);
 	};
 
+	createActionButton(root, '生成题目', runGenerate, {
+		icon: 'sparkles',
+		variant: 'primary',
+		className: 'en-generate-button',
+	});
+	
 	// 参考英语输入（可选），默认收起以突出主流程
 	const refSection = createCollapsibleSection(root, '参考英语（可选）', false);
 	const refInput = refSection.content.createEl('textarea', {
@@ -91,6 +107,12 @@ export function renderWritingPractice(
 		},
 	});
 
+	// 主题下拉与随机数种子（可选），生成题目时随提示词一起发送
+	const themeSelect = createThemeSelect(fieldRow, plugin, state.theme, (value) => {
+		state.theme = value;
+	});
+	const seedInput = createSeedField(fieldRow);
+
 	const generateStatus = createStatusLine(root);
 
 	// 题目与评估结果容器（初始隐藏）
@@ -104,6 +126,11 @@ export function renderWritingPractice(
 	/** 生成一道翻译练习题 */
 	async function runGenerate(): Promise<void> {
 		const reference = refInput.value.trim();
+		const theme = resolveSelectedTheme(
+			themeSelect.getValue(),
+			plugin.settings.writingThemes,
+		);
+		const seed = seedInput.value.trim() || createRandomSeed();
 		generateStatus.clear();
 		generateStatus.setState('loading');
 		generateStatus.setText('正在生成题目…');
@@ -114,6 +141,7 @@ export function renderWritingPractice(
 				state.difficulty,
 				plugin.settings,
 				{ debug: plugin.settings.debugMode },
+				{ theme, seed },
 			);
 			state.question = question;
 			renderTranslationQuestion(
@@ -123,6 +151,8 @@ export function renderWritingPractice(
 				state.difficulty,
 				plugin,
 				setStep,
+				theme,
+				seed,
 			);
 			setStep(1);
 			generateStatus.setState('success');
@@ -134,12 +164,6 @@ export function renderWritingPractice(
 			new Notice(`生成失败：${message}`);
 		}
 	}
-
-	createActionButton(root, '生成题目', runGenerate, {
-		icon: 'sparkles',
-		variant: 'primary',
-		className: 'en-generate-button',
-	});
 
 	// 接收语法分析结果作为参考表达
 	const unsubscribeReference = onGrammarReference(events, (sentence) => {
@@ -160,6 +184,8 @@ export function renderWritingPractice(
  * @param difficulty 难度级别
  * @param plugin 插件实例
  * @param setStep 更新工作流步骤
+ * @param theme 实际使用的主题（null 表示不指定）
+ * @param seed 本次生成使用的随机数种子
  */
 function renderTranslationQuestion(
 	questionArea: HTMLElement,
@@ -168,11 +194,18 @@ function renderTranslationQuestion(
 	difficulty: Difficulty,
 	plugin: EnPracticePlugin,
 	setStep: (step: number) => void,
+	theme: string | null,
+	seed: string,
 ): void {
 	questionArea.empty();
 	questionArea.removeClass('is-hidden');
 
 	const card = createResultCard(questionArea, '题目');
+
+	// 展示本次生成实际使用的主题与随机数种子，方便用户复现
+	const metaRow = card.createDiv('en-tag-row');
+	createTag(metaRow, `主题：${theme ?? '随机'}`, 'neutral');
+	createTag(metaRow, `随机数种子：${seed}`, 'neutral');
 
 	// 中文语句与提示
 	const displaySection = createResultSection(card, '中文语句');
@@ -276,15 +309,5 @@ function renderEvaluation(
 	suggestionsSection.createEl('p', { text: result.suggestions });
 
 	// 优化版本与复制入口
-	const improvedSection = createResultSection(card, '优化版本');
-	const improvedBox = improvedSection.createDiv('en-improved-text');
-	improvedBox.createEl('p', { text: result.improvedVersion });
-	createIconButton(improvedBox, 'copy', '复制优化版本', () => {
-		void copyTextToClipboard(result.improvedVersion)
-			.then(() => new Notice('已复制优化版本'))
-			.catch((err: unknown) => {
-				const message = err instanceof Error ? err.message : String(err);
-				new Notice(`复制失败：${message}`);
-			});
-	});
+	createCopyableText(card, '优化版本', result.improvedVersion);
 }

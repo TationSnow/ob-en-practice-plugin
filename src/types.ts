@@ -1,7 +1,11 @@
 import type {
 	ClauseInfo,
 	ComponentType,
+	GrammarImprovementResult,
+	GrammarIssue,
+	GrammarPattern,
 	GrammarResult,
+	GrammarRouterResult,
 	SentenceComponent,
 	TranslationEvaluation,
 	TranslationQuestion,
@@ -10,7 +14,11 @@ import type {
 export type {
 	ClauseInfo,
 	ComponentType,
+	GrammarImprovementResult,
+	GrammarIssue,
+	GrammarPattern,
 	GrammarResult,
+	GrammarRouterResult,
 	SentenceComponent,
 	TranslationEvaluation,
 	TranslationQuestion,

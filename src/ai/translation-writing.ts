@@ -2,6 +2,7 @@ import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { SystemMessage } from '@langchain/core/messages';
 import type { EnPracticeSettings } from '../settings';
 import type { Difficulty, TranslationQuestion, TranslationEvaluation } from '../types';
+import { createRandomSeed } from '../utils/writing-options';
 import { createModel } from './index';
 import {
 	EVALUATE_SYSTEM_PROMPT,
@@ -21,7 +22,7 @@ const GENERATE_PROMPT_TEMPLATE = ChatPromptTemplate.fromMessages([
 	new SystemMessage(GENERATE_SYSTEM_PROMPT),
 	[
 		'human',
-		'难度：{difficulty}\n参考英语表达：{reference}\n请生成一道翻译练习题。',
+		'难度：{difficulty}\n参考英语表达：{reference}\n主题：{theme}\n请生成一道翻译练习题。\n随机数种子：{seed}',
 	],
 ]);
 
@@ -34,11 +35,21 @@ const EVALUATE_PROMPT_TEMPLATE = ChatPromptTemplate.fromMessages([
 	],
 ]);
 
+/** 翻译题目生成的可选参数 */
+export interface QuestionGenerationOptions {
+	/** 题目主题；不传或为空表示不指定主题 */
+	theme?: string | null;
+	/** 随机数种子；不传时自动生成随机种子 */
+	seed?: string;
+}
+
 /**
  * 生成翻译练习题
  * @param reference 参考英语表达（可选）
  * @param difficulty 难度级别
  * @param settings 插件设置
+ * @param options 流式/调试选项
+ * @param generation 主题与随机种子参数
  * @returns 生成的题目
  */
 export async function generateQuestion(
@@ -46,14 +57,22 @@ export async function generateQuestion(
 	difficulty: Difficulty,
 	settings: EnPracticeSettings,
 	options?: StructuredOutputCallOptions,
+	generation?: QuestionGenerationOptions,
 ): Promise<TranslationQuestion> {
 	const model = createModel(settings);
+	const theme = generation?.theme?.trim() || '（无）';
+	const seed = generation?.seed?.trim() || createRandomSeed();
 	return invokeStructured({
 		model,
 		prompt: GENERATE_PROMPT_TEMPLATE,
 		schema: translationQuestionSchema,
 		outputName: 'translationQuestion',
-		variables: { difficulty, reference: reference || '（无）' },
+		variables: {
+			difficulty,
+			reference: reference || '（无）',
+			theme,
+			seed,
+		},
 		maxRetries: settings.retryCount,
 		onToken: settings.streamingEnabled ? options?.onToken : undefined,
 		debug: options?.debug,

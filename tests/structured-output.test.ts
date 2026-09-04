@@ -343,6 +343,67 @@ describe('invokeStructured', () => {
 		expect(String(lastMessage?.content)).toContain('修正：分数低于 80');
 	});
 
+	it('流式 jsonMode 解析失败后，重试消息携带具体校验错误', async () => {
+		const badJson = '{ "score": "90" }'; // score 应为 number，Zod 校验失败
+		const goodJson = JSON.stringify(VALID_EVALUATION);
+		const stream1 = createChunkStream([{ content: badJson }]);
+		const stream2 = createChunkStream([{ content: goodJson }]);
+		const stream = vi
+			.fn()
+			.mockResolvedValueOnce(stream1)
+			.mockResolvedValueOnce(stream2);
+		const withConfig = vi.fn().mockReturnValue({ stream });
+		const model = createFakeModel({ withConfig });
+
+		const result = await invokeStructured({
+			model,
+			prompt: TEST_PROMPT,
+			schema: translationEvaluationSchema,
+			outputName: 'translationEvaluation',
+			variables: { input: 'test' },
+			maxRetries: 1,
+			onToken: vi.fn(),
+		});
+
+		expect(result).toEqual(VALID_EVALUATION);
+		// 第二次请求的消息末尾应包含上次失败的具体错误
+		const secondMessages = stream.mock.calls[1]?.[0] as Array<{
+			content: unknown;
+		}>;
+		const lastMessage =
+			secondMessages?.[secondMessages.length - 1];
+		expect(String(lastMessage?.content)).toContain('具体错误');
+		expect(String(lastMessage?.content)).toContain('上次输出未通过 JSON 格式或字段校验');
+	});
+
+	it('兜底请求应携带最近一次失败原因', async () => {
+		const withStructuredOutput = vi.fn().mockReturnValue({
+			invoke: vi.fn().mockResolvedValue({ raw: {}, parsed: null }),
+		});
+		const invoke = vi
+			.fn()
+			.mockResolvedValue({ content: JSON.stringify(VALID_EVALUATION) });
+		const model = createFakeModel({ withStructuredOutput, invoke });
+
+		const result = await invokeStructured({
+			model,
+			prompt: TEST_PROMPT,
+			schema: translationEvaluationSchema,
+			outputName: 'translationEvaluation',
+			variables: { input: 'test' },
+			maxRetries: 0,
+		});
+
+		expect(result).toEqual(VALID_EVALUATION);
+		// 兜底请求的消息末尾应包含失败原因提示，避免模型盲目重答
+		const fallbackMessages = invoke.mock.calls[0]?.[0] as Array<{
+			content: unknown;
+		}>;
+		const lastMessage =
+			fallbackMessages?.[fallbackMessages.length - 1];
+		expect(String(lastMessage?.content)).toContain('具体错误');
+	});
+
 	it('API 不支持当前方法时自动切换到下一方法', async () => {
 		const withStructuredOutput = vi.fn().mockImplementation(
 			(_schema: unknown, config: { method?: string }) => {

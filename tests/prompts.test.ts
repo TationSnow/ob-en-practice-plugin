@@ -4,6 +4,8 @@ import { SystemMessage } from '@langchain/core/messages';
 import {
 	EVALUATE_SYSTEM_PROMPT,
 	GENERATE_SYSTEM_PROMPT,
+	GRAMMAR_IMPROVEMENT_SYSTEM_PROMPT,
+	GRAMMAR_ROUTER_SYSTEM_PROMPT,
 	GRAMMAR_SYSTEM_PROMPT,
 } from '../src/ai/prompts';
 import { isConfigValid } from '../src/types';
@@ -32,14 +34,50 @@ describe('ChatPromptTemplate 编译', () => {
 	it('翻译生成 prompt 应能正常编译并执行 invoke', async () => {
 		const prompt = ChatPromptTemplate.fromMessages([
 			new SystemMessage(GENERATE_SYSTEM_PROMPT),
-			['human', '难度：{difficulty}\n参考英语表达：{reference}\n请生成一道翻译练习题。'],
+			[
+				'human',
+				'难度：{difficulty}\n参考英语表达：{reference}\n主题：{theme}\n请生成一道翻译练习题。\n随机数种子：{seed}',
+			],
 		]);
 		const result = await prompt.invoke({
 			difficulty: 'cet4',
 			reference: '（无）',
+			theme: '环保',
+			seed: 'seed-test-1',
 		});
 		expect(result).toBeDefined();
 		expect(result.messages.length).toBe(2);
+		const humanMsg = result.messages[1]?.content as string;
+		expect(humanMsg).toContain('主题：环保');
+		expect(humanMsg.endsWith('随机数种子：seed-test-1')).toBe(true);
+	});
+
+	it('语法路由 prompt 应能正常编译并执行 invoke', async () => {
+		const prompt = ChatPromptTemplate.fromMessages([
+			new SystemMessage(GRAMMAR_ROUTER_SYSTEM_PROMPT),
+			['human', '{sentence}'],
+		]);
+		const result = await prompt.invoke({
+			sentence: 'I am interesting in reading.',
+		});
+		expect(result).toBeDefined();
+		expect(result.messages.length).toBe(2);
+		const sysMsg = result.messages[0]?.content as string;
+		expect(sysMsg).toContain('hasGrammarIssues');
+	});
+
+	it('语法改进 prompt 应能正常编译并执行 invoke', async () => {
+		const prompt = ChatPromptTemplate.fromMessages([
+			new SystemMessage(GRAMMAR_IMPROVEMENT_SYSTEM_PROMPT),
+			['human', '{sentence}'],
+		]);
+		const result = await prompt.invoke({
+			sentence: 'I am interesting in reading.',
+		});
+		expect(result).toBeDefined();
+		expect(result.messages.length).toBe(2);
+		const sysMsg = result.messages[0]?.content as string;
+		expect(sysMsg).toContain('improvedSentence');
 	});
 
 	it('翻译评估 prompt 应能正常编译并执行 invoke', async () => {

@@ -1,9 +1,9 @@
 {
 	"id": "en-practice",
 	"name": "En Practice",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"minAppVersion": "1.7.2",
 	"description": "英语语法分析与翻译写作练习工具。",
-	"author": "En Practice",
+	"author": "Tation",
 	"isDesktopOnly": false
 }

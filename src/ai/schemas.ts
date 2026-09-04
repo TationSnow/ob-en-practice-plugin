@@ -80,13 +80,12 @@ export const grammarSchema = z.object({
 	clauses: z
 		.array(clauseInfoSchema)
 		.describe('主句与从句列表，level 0 为主句，从句层级逐级递增'),
+	// 时态去重交由 normalizeGrammarResult 后处理，不在 schema 层做业务规则校验：
+	// 弱模型常按“逐谓语列出”的指令输出重复时态，refine 会直接拒绝整个结果
 	tense: z
 		.array(z.string().min(1))
 		.min(1)
-		.describe('所有出现的时态，不重复，按出现顺序排列')
-		.refine((items) => new Set(items).size === items.length, {
-			message: '时态列表不能重复',
-		}),
+		.describe('所有出现的时态，不重复，按出现顺序排列'),
 	voice: z.string().describe('语态'),
 	mood: z.string().describe('语气'),
 	sentenceType: z.string().describe('句型'),
@@ -115,3 +114,42 @@ export const translationEvaluationSchema = z.object({
 }).strict();
 
 export type TranslationEvaluation = z.infer<typeof translationEvaluationSchema>;
+
+/** 语法路由判定结果 schema */
+export const grammarRouterSchema = z.object({
+	hasGrammarIssues: z.boolean().describe('句子是否存在语法问题'),
+	summary: z
+		.string()
+		.optional()
+		.describe('路由判定的简短理由，供调试与界面展示'),
+}).strict();
+
+export type GrammarRouterResult = z.infer<typeof grammarRouterSchema>;
+
+/** 语法改进中的单个错误项 schema */
+const grammarIssueSchema = z.object({
+	text: z.string().describe('出错片段（原句中的连续片段；无法定位时使用完整句子）'),
+	type: z.string().describe('错误类型，如 主谓一致、时态错误'),
+	explanation: z.string().describe('错误原因说明'),
+	suggestion: z.string().describe('针对该错误的修改建议'),
+}).strict();
+
+/** 语法改进中的单个句式项 schema */
+const grammarPatternSchema = z.object({
+	pattern: z.string().describe('使用的句式，如 between...and...'),
+	usage: z.string().describe('句式用法说明'),
+	example: z.string().optional().describe('符合该句式的正确例句'),
+}).strict();
+
+/** 语法改进结果 schema */
+export const grammarImprovementSchema = z.object({
+	sentence: z.string().describe('用户输入的原始句子'),
+	issues: z.array(grammarIssueSchema).describe('语法错误列表'),
+	patterns: z.array(grammarPatternSchema).describe('句子中使用的句式列表'),
+	suggestions: z.array(z.string()).describe('整体改进建议列表'),
+	improvedSentence: z.string().describe('改进后的句子，保留原意'),
+}).strict();
+
+export type GrammarIssue = z.infer<typeof grammarIssueSchema>;
+export type GrammarPattern = z.infer<typeof grammarPatternSchema>;
+export type GrammarImprovementResult = z.infer<typeof grammarImprovementSchema>;
