@@ -2,11 +2,10 @@ import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { SystemMessage } from '@langchain/core/messages';
 import type { EnPracticeSettings } from '../settings';
 import type { GrammarRouterResult } from '../types';
-import { createModel } from './index';
 import { GRAMMAR_ROUTER_SYSTEM_PROMPT } from './prompts';
 import { grammarRouterSchema } from './schemas';
 import {
-	invokeStructured,
+	runStructuredTask,
 	type StructuredOutputCallOptions,
 } from './structured-output';
 
@@ -15,6 +14,9 @@ const ROUTER_PROMPT = ChatPromptTemplate.fromMessages([
 	new SystemMessage(GRAMMAR_ROUTER_SYSTEM_PROMPT),
 	['human', '{sentence}'],
 ]);
+
+/** 路由输出只有布尔值与一句摘要，收紧输出上限防止失控生成 */
+const ROUTER_MAX_TOKENS = 512;
 
 /**
  * 判断句子是否存在语法问题，供语法分析图做分流。
@@ -28,16 +30,11 @@ export async function classifyGrammar(
 	settings: EnPracticeSettings,
 	options?: StructuredOutputCallOptions,
 ): Promise<GrammarRouterResult> {
-	const model = createModel(settings);
-	return invokeStructured({
-		model,
+	return runStructuredTask(settings, options, {
+		outputName: 'grammarRouter',
 		prompt: ROUTER_PROMPT,
 		schema: grammarRouterSchema,
-		outputName: 'grammarRouter',
 		variables: { sentence },
-		maxRetries: settings.retryCount,
-		onToken: settings.streamingEnabled ? options?.onToken : undefined,
-		debug: options?.debug,
-		thinkingEnabled: settings.thinkingEnabled,
+		maxTokens: ROUTER_MAX_TOKENS,
 	});
 }

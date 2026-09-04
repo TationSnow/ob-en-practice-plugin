@@ -1,33 +1,69 @@
 import type { ChatPromptTemplate } from '@langchain/core/prompts';
-import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
+import { type BaseMessage } from '@langchain/core/messages';
 import { StructuredOutputParser } from '@langchain/core/output_parsers';
-import type {
-	ChatOpenAI,
-	ChatOpenAIStructuredOutputMethodOptions,
-} from '@langchain/openai';
+import type { ChatOpenAI } from '@langchain/openai';
 import type { z } from 'zod';
+import type { EnPracticeSettings } from '../settings';
 import { AiError } from '../types';
+import { repairJsonText } from '../utils/json-repair';
+import { createModel } from './index';
 import {
 	addDebugEntry,
 	createRequestId,
 	formatDebugDetail,
 } from './debug-log';
 
-/** 支持的结构化输出方法 */
-export type StructuredOutputMethod = 'jsonMode' | 'functionCalling' | 'jsonSchema';
-
-/** 已知支持 OpenAI structured outputs 的模型名模式 */
-const OPENAI_STRUCTURED_MODEL_PATTERN = /gpt-4o|gpt-4\.1|gpt-5|o[1-9]/i;
-
-/** 解析失败后追加给模型的纠错提示 */
-const RETRY_HINT =
-	'上次输出未通过 JSON 格式或字段校验。请重新输出，只返回一个合法 JSON 对象：不要 Markdown 代码块、不要解释、不要补充文字，必须包含全部字段。';
-
-/** 校验错误摘要最大长度，避免把整段原始输出塞进重试消息 */
+/** 解析失败详情最大长度，避免把整段原始输出塞进错误消息 */
 const PARSE_ERROR_DETAIL_LIMIT = 200;
 
 /**
- * 提取校验错误的可读摘要，用于重试提示与调试日志。
+ * AI 功能函数可接收的流式/调试选项。
+ * 流式回调仅在插件开启“启用流式输出”时生效，由 runStructuredTask 统一接线。
+ */
+export interface StructuredOutputCallOptions {
+	/** 流式输出回调，收到文本分片时触发 */
+	onToken?: (token: string) => void;
+	/** 是否写入调试日志 */
+	debug?: boolean;
+}
+
+/** 结构化输出调用参数 */
+export interface InvokeStructuredOptions<T extends z.ZodType> {
+	model: ChatOpenAI;
+	prompt: ChatPromptTemplate;
+	schema: T;
+	/** 任务标识，同时用作调试日志 feature 名称 */
+	outputName: string;
+	variables: Record<string, unknown>;
+	/** 流式输出回调，收到文本分片时触发 */
+	onToken?: (token: string) => void;
+	/** 是否写入调试日志 */
+	debug?: boolean;
+	/** Zod 校验通过后的附加业务校验；返回问题列表，非空视为本次输出无效 */
+	additionalValidation?: (parsed: z.infer<T>) => string[];
+}
+
+/** 单个 AI 功能任务的配置，供 runStructuredTask 使用 */
+export interface StructuredTaskConfig<T extends z.ZodType> {
+	/** 任务标识，同时用作调试日志 feature 名称 */
+	outputName: string;
+	/** 编译好的提示词模板 */
+	prompt: ChatPromptTemplate;
+	/** 输出 schema */
+	schema: T;
+	/** 模板变量 */
+	variables: Record<string, unknown>;
+	/** Zod 校验通过后的附加业务校验 */
+	additionalValidation?: (parsed: z.infer<T>) => string[];
+	/**
+	 * 本任务的输出 token 上限，与用户设置取小。
+	 * 用于输出体积可预期的任务（路由判定、改进建议），防止模型失控生成长文本。
+	 */
+	maxTokens?: number;
+}
+
+/**
+ * 提取校验错误的可读摘要，用于错误消息与调试日志。
  * @param err 校验错误
  * @returns 截断后的错误文本
  */
@@ -38,117 +74,13 @@ function parseErrorDetail(err: unknown): string {
 		: text;
 }
 
-/** 结构化输出调用参数 */
-export interface InvokeStructuredOptions<T extends z.ZodType> {
-	model: ChatOpenAI;
-	prompt: ChatPromptTemplate;
-	schema: T;
-	outputName: string;
-	variables: Record<string, unknown>;
-	maxRetries: number;
-	/** 流式输出回调，收到文本分片时触发 */
-	onToken?: (token: string) => void;
-	/** 是否写入调试日志 */
-	debug?: boolean;
-	/** 是否启用思考模式；开启时跳过不兼容的函数调用方法 */
-	thinkingEnabled?: boolean;
-	/** Zod 校验通过后的附加业务校验；返回问题列表，非空视为本次输出无效 */
-	additionalValidation?: (parsed: z.infer<T>) => string[];
-	/** 附加校验失败时生成重试提示的函数；默认使用通用纠错提示 */
-	validationRetryHint?: (issues: string[]) => string;
-}
-
-/** AI 功能函数可接收的流式/调试选项 */
-export type StructuredOutputCallOptions = Pick<
-	InvokeStructuredOptions<never>,
-	'onToken' | 'debug'
->;
-
-/** withStructuredOutput 的 includeRaw 返回结构 */
-interface ParsedStructuredResult<T> {
-	raw: BaseMessage;
-	parsed: T | null;
-}
-
 /**
- * 收集附加业务校验的问题列表。
- * @param parsed 已通过 Zod 校验的结果
- * @param validate 附加校验函数
- * @returns 问题列表；为空表示校验通过
+ * 获取错误的可读文本。
+ * @param err 未知错误
+ * @returns 错误信息
  */
-function collectValidationIssues<T extends z.ZodType>(
-	parsed: z.infer<T>,
-	validate?: (parsed: z.infer<T>) => string[],
-): string[] {
-	if (!validate) return [];
-	return validate(parsed);
-}
-
-/**
- * 生成重试提示：附加校验失败时携带具体问题，帮助模型针对性修正。
- * @param validationRetryHint 自定义提示生成函数
- * @param issues 校验问题列表
- * @returns 追加给模型的重试提示
- */
-function buildRetryHint(
-	validationRetryHint?: (issues: string[]) => string,
-	issues: string[] = [],
-): string {
-	if (validationRetryHint && issues.length > 0) {
-		return validationRetryHint(issues);
-	}
-	return RETRY_HINT;
-}
-
-/**
- * 根据模型自动选择结构化输出方法链。
- * @param model ChatOpenAI 实例
- * @returns 按优先级排列的方法列表
- */
-export function resolveOutputMethods(
-	model: ChatOpenAI,
-	thinkingEnabled = false,
-): StructuredOutputMethod[] {
-	const modelName = (model.model ?? '').toLowerCase();
-
-	// 未来模型集成如果填充了 profile，优先使用 JSON Schema
-	if (model.profile.structuredOutput === true) {
-		return ['jsonSchema', 'jsonMode', 'functionCalling'];
-	}
-
-	// DeepSeek 官方确认支持 JSON Output，优先 jsonMode；
-	// 思考模式不支持 tool_choice，需要去掉 functionCalling
-	if (modelName.includes('deepseek')) {
-		return thinkingEnabled
-			? ['jsonMode']
-			: ['jsonMode', 'functionCalling'];
-	}
-
-	// 已知 OpenAI 结构化输出模型优先使用 JSON Schema
-	if (OPENAI_STRUCTURED_MODEL_PATTERN.test(modelName)) {
-		return ['jsonSchema', 'functionCalling', 'jsonMode'];
-	}
-
-	// 老版 GPT-3/GPT-4 系列使用函数调用更稳妥
-	if (modelName.startsWith('gpt-3') || modelName.startsWith('gpt-4')) {
-		return ['functionCalling', 'jsonMode'];
-	}
-
-	// 未知的 OpenAI 兼容接口默认 JSON Mode，兼容面最广
-	return ['jsonMode', 'functionCalling'];
-}
-
-/**
- * 判断是否可对当前模型开启 strict 模式。
- * @param model ChatOpenAI 实例
- * @returns 是否启用 strict
- */
-function shouldUseStrict(model: ChatOpenAI): boolean {
-	const modelName = model.model ?? '';
-	return (
-		model.profile.structuredOutput === true ||
-		OPENAI_STRUCTURED_MODEL_PATTERN.test(modelName)
-	);
+function errorMessage(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
 }
 
 /**
@@ -204,15 +136,6 @@ function extractReasoningContent(chunk: StreamChunk): string {
 }
 
 /**
- * 获取错误的可读文本。
- * @param err 未知错误
- * @returns 错误信息
- */
-function errorMessage(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
-}
-
-/**
  * 逐块收集流式文本并触发 onToken 回调。
  * 思考模型的最终答案优先取 content；content 为空时回退到 reasoning_content。
  * @param stream 模型返回的流
@@ -239,65 +162,76 @@ async function collectStreamText(
 }
 
 /**
- * 以 JSON Mode 流式请求，并在结束后执行 Zod 校验。
+ * 以 JSON Mode 请求模型并收集输出文本。
+ * 统一使用 response_format: json_object（OpenAI 兼容接口兼容面最广，且支持流式）；
+ * 传入 onToken 时走流式逐块回调，否则单次调用。
  * @param model ChatOpenAI 实例
  * @param messages 请求消息
- * @param schema Zod schema
- * @param onToken 流式文本回调
- * @returns 解析结果（失败时为 null）、原始文本与校验错误摘要
+ * @param onToken 流式文本回调；缺省时使用非流式调用
+ * @returns 模型输出的完整文本
  */
-async function invokeJsonModeStream<T extends z.ZodType>(
+async function collectModelText(
 	model: ChatOpenAI,
 	messages: BaseMessage[],
-	schema: T,
 	onToken?: (token: string) => void,
-): Promise<{ parsed: z.infer<T> | null; rawText: string; parseError?: string }> {
-	const streamModel = model.withConfig({
+): Promise<string> {
+	// 请求 JSON Mode：接口按 JSON 约束输出，减少 Markdown 代码块等杂讯
+	const jsonModel = model.withConfig({
 		response_format: { type: 'json_object' },
 	});
-	const stream = await streamModel.stream(messages);
-	const rawText = await collectStreamText(stream, onToken);
-	try {
-		const parsed = await StructuredOutputParser.fromZodSchema(schema).parse(
-			rawText,
-		);
-		return { parsed, rawText };
-	} catch (err) {
-		// 保留错误摘要，供重试提示与调试日志定位具体字段
-		return { parsed: null, rawText, parseError: parseErrorDetail(err) };
+	if (onToken) {
+		const stream = await jsonModel.stream(messages);
+		return collectStreamText(stream, onToken);
 	}
+	const message = await jsonModel.invoke(messages);
+	const text = extractTextContent(message.content);
+	// 思考模型（如 deepseek-reasoner）在非流式下答案可能落在 reasoning_content；
+	// BaseMessage 结构上兼容 StreamChunk（content + additional_kwargs），可直接复用
+	if (!text) {
+		return extractReasoningContent(message);
+	}
+	return text;
+}
+
+/** 解析结果：parsed 为解析输出，repaired 标记是否经过本地 JSON 修复 */
+interface ParseOutcome<T> {
+	parsed: T;
+	repaired: boolean;
 }
 
 /**
- * 以普通文本流式请求，并在结束后执行 Zod 校验。
- * @param model ChatOpenAI 实例
- * @param messages 请求消息
- * @param schema Zod schema
- * @param onToken 流式文本回调
- * @returns 解析结果（失败时为 null）、原始文本与校验错误摘要
+ * 解析模型输出的 JSON 文本。
+ * 标准解析失败时，尝试本地修复常见 JSON 语法缺陷
+ * （如中文字符串值内未转义的英文双引号）后重新解析；
+ * 修复是纯文本操作，不产生额外模型请求。修复后仍失败则抛出原始错误。
+ * @param parser LangChain 结构化输出解析器
+ * @param rawText 模型原始输出
+ * @returns 解析结果与是否经过修复
  */
-async function invokePlainStream<T extends z.ZodType>(
-	model: ChatOpenAI,
-	messages: BaseMessage[],
-	schema: T,
-	onToken?: (token: string) => void,
-): Promise<{ parsed: z.infer<T> | null; rawText: string; parseError?: string }> {
-	const stream = await model.stream(messages);
-	const rawText = await collectStreamText(stream, onToken);
+async function parseWithRepair<T>(
+	parser: { parse(text: string): Promise<T> },
+	rawText: string,
+): Promise<ParseOutcome<T>> {
 	try {
-		const parsed = await StructuredOutputParser.fromZodSchema(schema).parse(
-			rawText,
-		);
-		return { parsed, rawText };
-	} catch (err) {
-		// 保留错误摘要，供重试提示与调试日志定位具体字段
-		return { parsed: null, rawText, parseError: parseErrorDetail(err) };
+		return { parsed: await parser.parse(rawText), repaired: false };
+	} catch (firstError) {
+		const repaired = repairJsonText(rawText);
+		if (repaired === null) {
+			throw firstError;
+		}
+		try {
+			return { parsed: await parser.parse(repaired), repaired: true };
+		} catch {
+			// 修复后仍失败：抛出原始错误，它才是真正的语法根因
+			throw firstError;
+		}
 	}
 }
 
 /**
- * 统一执行结构化输出调用。
- * 优先使用 LangChain 原生 withStructuredOutput，失败时自动降级并重试。
+ * 统一执行结构化输出调用：一次请求，解析与校验失败即快速抛错。
+ * 不做重试、不做方法降级、不做普通文本兜底——失败原因直接交给上层提示用户，
+ * 既避免多次请求拖慢响应，也防止兜底机制污染业务路由。
  * @param options 调用参数
  * @returns 校验通过的解析结果
  */
@@ -312,21 +246,10 @@ export async function invokeStructured<T extends z.ZodType>(
 		variables,
 		onToken,
 		debug,
-		thinkingEnabled,
 		additionalValidation,
-		validationRetryHint,
 	} = options;
-	const maxAttempts = Math.max(
-		0,
-		Math.min(3, Math.floor(options.maxRetries)),
-	);
 	const parser = StructuredOutputParser.fromZodSchema(schema);
-	const methods = resolveOutputMethods(model, thinkingEnabled);
 	const requestId = createRequestId(outputName);
-	// 最近一次附加校验的问题，用于生成下一次重试提示
-	let lastValidationIssues: string[] = [];
-	// 最近一次 schema/JSON 解析失败的错误摘要，用于生成针对性重试提示
-	let lastParseError: string | undefined;
 
 	if (debug) {
 		addDebugEntry({
@@ -334,308 +257,127 @@ export async function invokeStructured<T extends z.ZodType>(
 			feature: outputName,
 			phase: 'request',
 			message: '开始请求',
-			detail: formatDebugDetail({ methods, variables }),
+			detail: formatDebugDetail({ variables }),
 		});
 	}
 
-	// 依次尝试原生方法；API 不支持当前方法时切换到下一方法
-	for (const method of methods) {
-		for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
-			try {
-				const promptValue = await prompt.invoke(variables);
-				// 重试消息按优先级携带最近一次失败原因：
-				// 业务校验问题 > schema 解析错误摘要 > 通用纠错提示
-				let retryHint: string | undefined;
-				if (lastValidationIssues.length > 0) {
-					retryHint = buildRetryHint(
-						validationRetryHint,
-						lastValidationIssues,
-					);
-				} else if (lastParseError) {
-					retryHint = `${RETRY_HINT}具体错误：${lastParseError}`;
-				}
-				const messages =
-					attempt === 0 || !retryHint
-						? promptValue.messages
-						: [
-								...promptValue.messages,
-								new HumanMessage(retryHint),
-							];
-				if (debug) {
-					addDebugEntry({
-						requestId,
-						feature: outputName,
-						phase: 'request',
-						message: `尝试 ${method}（第 ${attempt + 1}/${maxAttempts + 1} 次）`,
-						detail: formatDebugDetail({ variables }),
-					});
-				}
-
-				// 流式 JSON Mode 优先用于可见的流式输出
-				if (method === 'jsonMode' && onToken) {
-					const { parsed, rawText, parseError } =
-						await invokeJsonModeStream(
-							model,
-							messages,
-							schema,
-							onToken,
-						);
-					if (debug) {
-						addDebugEntry({
-							requestId,
-							feature: outputName,
-							phase: 'stream',
-							message: '流式输出结束',
-							detail: `已接收 ${rawText.length} 字符`,
-						});
-					}
-					// 记录解析错误摘要，供同方法重试时生成针对性提示
-					lastParseError = parseError;
-					if (parsed !== null && parsed !== undefined) {
-						const validationIssues = collectValidationIssues(
-							parsed,
-							additionalValidation,
-						);
-						if (validationIssues.length === 0) {
-							lastValidationIssues = [];
-							if (debug) {
-								addDebugEntry({
-									requestId,
-									feature: outputName,
-									phase: 'success',
-									message: '请求成功',
-									detail: formatDebugDetail(parsed),
-								});
-							}
-							return parsed;
-						}
-						lastValidationIssues = validationIssues;
-						if (debug) {
-							addDebugEntry({
-								requestId,
-								feature: outputName,
-								phase: 'retry',
-								message: '输出未通过附加校验',
-								detail: validationIssues.join('；'),
-							});
-						}
-						continue;
-					}
-					if (debug) {
-						addDebugEntry({
-							requestId,
-							feature: outputName,
-							phase: 'retry',
-							message: '输出未通过校验',
-							detail: [
-								attempt < maxAttempts ? '准备重试' : '切换下一方法',
-								lastParseError ? `错误摘要：${lastParseError}` : '',
-							].filter(Boolean).join('；'),
-						});
-					}
-					continue;
-				}
-
-				const config: ChatOpenAIStructuredOutputMethodOptions<true> = {
-					method,
-					includeRaw: true,
-					name: outputName,
-				};
-				if (method !== 'jsonMode' && shouldUseStrict(model)) {
-					config.strict = true;
-				}
-				const runnable = model.withStructuredOutput(
-					schema as unknown as Parameters<
-						ChatOpenAI['withStructuredOutput']
-					>[0],
-					config,
-				);
-				const result = (await runnable.invoke(
-					messages,
-				)) as unknown as ParsedStructuredResult<z.infer<T>>;
-				if (result.parsed !== null && result.parsed !== undefined) {
-					const validationIssues = collectValidationIssues(
-						result.parsed,
-						additionalValidation,
-					);
-					if (validationIssues.length === 0) {
-						lastValidationIssues = [];
-						if (debug) {
-							addDebugEntry({
-								requestId,
-								feature: outputName,
-								phase: 'success',
-								message: '请求成功',
-								detail: formatDebugDetail(result.parsed),
-							});
-						}
-						return result.parsed;
-					}
-					lastValidationIssues = validationIssues;
-					if (debug) {
-						addDebugEntry({
-							requestId,
-							feature: outputName,
-							phase: 'retry',
-							message: '输出未通过附加校验',
-							detail: validationIssues.join('；'),
-						});
-					}
-					continue;
-				}
-				// parsed 为 null 表示格式校验失败，继续按重试次数重试
-				// withStructuredOutput 解析失败时记录 raw 消息作为错误摘要，
-				// 供重试提示与调试日志携带具体失败原因
-				if (result.raw) {
-					lastParseError = parseErrorDetail(
-						extractTextContent(
-							(result.raw as { content?: unknown }).content ??
-								'原始响应为空',
-						),
-					);
-				}
-				if (debug) {
-					addDebugEntry({
-						requestId,
-						feature: outputName,
-						phase: 'retry',
-						message: '输出未通过校验',
-						detail: [
-							attempt < maxAttempts ? '准备重试' : '切换下一方法',
-							lastParseError ? `错误摘要：${lastParseError}` : '',
-						]
-							.filter(Boolean)
-							.join('；'),
-					});
-				}
-			} catch (err) {
-				// API 层错误说明当前方法不被接口支持，直接尝试下一方法
-				if (debug) {
-					addDebugEntry({
-						requestId,
-						feature: outputName,
-						phase: 'error',
-						message: `${method} 调用失败，切换下一方法`,
-						detail: errorMessage(err),
-					});
-				}
-				break;
-			}
-		}
-	}
-
-	// 最后兜底：普通文本输出 + Zod 校验，兼容不支持任何结构化参数的接口
-	let parsed: z.infer<T> | null = null;
-	let rawText = '';
+	// 收集模型输出；网络/接口错误直接映射为 API_ERROR，交由界面提示
+	let rawText: string;
 	try {
 		const promptValue = await prompt.invoke(variables);
-		// 兜底请求携带最近一次失败原因，避免模型盲目重答同一份输出
-		const fallbackMessages = [
-			...promptValue.messages,
-			...(lastParseError || lastValidationIssues.length > 0
-				? [
-						new HumanMessage(
-							`${RETRY_HINT}具体错误：${
-								lastValidationIssues.length > 0
-									? lastValidationIssues.join('；')
-									: lastParseError ?? '未知'
-							}`,
-						),
-					]
-				: []),
-		];
-		if (debug) {
-			addDebugEntry({
-				requestId,
-				feature: outputName,
-				phase: 'fallback',
-				message: '使用普通文本兜底',
-				detail: lastParseError
-					? `携带失败原因：${lastParseError}`
-					: '无失败原因，直接重新请求',
-			});
-		}
-		if (onToken) {
-			const fallback = await invokePlainStream(
-				model,
-				fallbackMessages,
-				schema,
-				onToken,
-			);
-			parsed = fallback.parsed;
-			rawText = fallback.rawText;
-		} else {
-			const message = await model.invoke(fallbackMessages);
-			rawText = extractTextContent(message.content);
-			if (!rawText) {
-				rawText = extractReasoningContent(message);
-			}
-			try {
-				parsed = await parser.parse(rawText);
-			} catch {
-				parsed = null;
-			}
-		}
-		if (parsed !== null && parsed !== undefined) {
-			const validationIssues = collectValidationIssues(
-				parsed,
-				additionalValidation,
-			);
-			if (validationIssues.length > 0) {
-				lastValidationIssues = validationIssues;
-				if (debug) {
-					addDebugEntry({
-						requestId,
-						feature: outputName,
-						phase: 'retry',
-						message: '兜底输出未通过附加校验',
-						detail: validationIssues.join('；'),
-					});
-				}
-				parsed = null;
-			}
-		}
+		rawText = await collectModelText(model, promptValue.messages, onToken);
 	} catch (err) {
 		if (debug) {
 			addDebugEntry({
 				requestId,
 				feature: outputName,
 				phase: 'error',
-				message: '兜底请求失败',
+				message: '请求失败',
 				detail: errorMessage(err),
 			});
 		}
-		throw new AiError(
-			'API_ERROR',
-			`模型调用失败：${errorMessage(err)}`,
-		);
+		throw new AiError('API_ERROR', `模型调用失败：${errorMessage(err)}`);
 	}
 
-	if (parsed !== null && parsed !== undefined) {
-		if (debug) {
-			addDebugEntry({
-				requestId,
-				feature: outputName,
-				phase: 'success',
-				message: '兜底解析成功',
-				detail: formatDebugDetail(parsed),
-			});
-		}
-		return parsed;
-	}
-
-	const parseError = new AiError(
-		'PARSE_ERROR',
-		`模型输出无法解析，原始输出：${rawText}`,
-	);
 	if (debug) {
 		addDebugEntry({
 			requestId,
 			feature: outputName,
-			phase: 'error',
-			message: '请求失败',
-			detail: parseError.message,
+			phase: 'stream',
+			message: '输出接收完成',
+			detail: `已接收 ${rawText.length} 字符`,
 		});
 	}
-	throw parseError;
+
+	// Zod schema 校验；标准解析失败时先尝试本地 JSON 修复（零额外请求），仍失败才快速抛错
+	let parsed: z.infer<T>;
+	try {
+		const outcome = await parseWithRepair(parser, rawText);
+		parsed = outcome.parsed;
+		if (outcome.repaired && debug) {
+			addDebugEntry({
+				requestId,
+				feature: outputName,
+				phase: 'repair',
+				message: 'JSON 语法修复后解析成功',
+				detail:
+					'模型输出的 JSON 存在字符串值内未转义引号等缺陷，已在本地修复（未产生额外模型请求）',
+			});
+		}
+	} catch (err) {
+		// 调试日志记录完整错误与原始输出，不做截断——
+		// 调试面板展示与“复制日志”都依赖它排查解析失败的具体原因
+		if (debug) {
+			addDebugEntry({
+				requestId,
+				feature: outputName,
+				phase: 'error',
+				message: '输出未通过 schema 校验',
+				detail: `${errorMessage(err)}\n原始输出：${rawText}`,
+			});
+		}
+		// 面向用户的错误消息保留截断摘要，避免通知过长；完整内容见调试日志
+		throw new AiError(
+			'PARSE_ERROR',
+			`模型输出无法解析（${parseErrorDetail(err)}），原始输出：${rawText}`,
+		);
+	}
+
+	// 附加业务校验（如成分必须是原句连续片段），失败即抛出
+	if (additionalValidation) {
+		const issues = additionalValidation(parsed);
+		if (issues.length > 0) {
+			if (debug) {
+				addDebugEntry({
+					requestId,
+					feature: outputName,
+					phase: 'error',
+					message: '输出未通过附加校验',
+					detail: issues.join('；'),
+				});
+			}
+			throw new AiError(
+				'PARSE_ERROR',
+				`模型输出未通过业务校验：${issues.join('；')}，原始输出：${rawText}`,
+			);
+		}
+	}
+
+	if (debug) {
+		addDebugEntry({
+			requestId,
+			feature: outputName,
+			phase: 'success',
+			message: '请求成功',
+			detail: formatDebugDetail(parsed),
+		});
+	}
+	return parsed;
+}
+
+/**
+ * 执行一个标准 AI 结构化任务：创建模型、按设置接线流式/调试选项并解析输出。
+ * 各 AI 功能节点共用此入口，收敛“创建模型 + 选项透传”的重复样板。
+ * @param settings 插件设置
+ * @param options 调用方的流式/调试选项
+ * @param config 任务配置
+ * @returns 校验通过的任务结果
+ */
+export async function runStructuredTask<T extends z.ZodType>(
+	settings: EnPracticeSettings,
+	options: StructuredOutputCallOptions | undefined,
+	config: StructuredTaskConfig<T>,
+): Promise<z.infer<T>> {
+	const model = createModel(settings, config.maxTokens);
+	return invokeStructured({
+		model,
+		prompt: config.prompt,
+		schema: config.schema,
+		outputName: config.outputName,
+		variables: config.variables,
+		// 流式开关由插件设置统一控制，未开启时不接通回调
+		onToken: settings.streamingEnabled ? options?.onToken : undefined,
+		debug: options?.debug,
+		additionalValidation: config.additionalValidation,
+	});
 }

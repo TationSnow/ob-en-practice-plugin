@@ -105,8 +105,6 @@ export function renderGrammarAnalysis(
 		resultList.empty();
 		resultList.removeClass('is-hidden');
 
-		// 本次运行是否有句子从成分分析降级为改进建议
-		let degraded = false;
 		// 流式输出累计缓冲，用于在状态栏展示生成预览
 		let streamBuffer = '';
 
@@ -132,8 +130,6 @@ export function renderGrammarAnalysis(
 						},
 					},
 				);
-				// 记录降级标记，循环结束后统一提示
-				degraded = degraded || result.degraded === true;
 				if (result.route === 'improvement' && result.improvement) {
 					renderImprovementResult(
 						resultList,
@@ -156,10 +152,6 @@ export function renderGrammarAnalysis(
 			status.setText(`分析完成，共 ${sentences.length} 句`);
 			analyzedInput = input;
 			useForWritingButton.removeClass('is-hidden');
-			if (degraded) {
-				// 分析解析失败已自动降级，告知用户结果来自改进助手
-				new Notice('部分句子成分分析失败，已改用改进建议展示');
-			}
 		} catch (err) {
 			status.setState('error');
 			// 解析失败属于“模型格式问题”，原始 JSON 只留在调试面板，
@@ -228,6 +220,12 @@ function renderGrammarResult(
 	}
 	createTag(tagRow, result.voice, 'neutral');
 	createTag(tagRow, result.sentenceType, 'success');
+
+	// 中文翻译：先理解句意，再阅读结构分析
+	const translationSection = createResultSection(card, '中文翻译');
+	translationSection
+		.createEl('p', { text: result.translation })
+		.addClass('en-translation-text');
 
 	// 带成分与从句标注的句子展示
 	const sentenceSection = createResultSection(card, '句子成分标注');

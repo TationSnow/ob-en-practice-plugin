@@ -29,6 +29,11 @@ describe('ChatPromptTemplate 编译', () => {
 		expect(sysMsg).toContain('function');
 		expect(sysMsg).toContain('tense');
 		expect(sysMsg).toContain('JSON');
+		// 输出字段要求：sentence 原样返回 + 中文翻译
+		expect(sysMsg).toContain('translation');
+		expect(sysMsg).toContain('原样保留');
+		// 字段值引用词语必须用中文引号，避免未转义引号破坏 JSON
+		expect(sysMsg).toContain('未转义的英文双引号');
 	});
 
 	it('翻译生成 prompt 应能正常编译并执行 invoke', async () => {
@@ -64,6 +69,9 @@ describe('ChatPromptTemplate 编译', () => {
 		expect(result.messages.length).toBe(2);
 		const sysMsg = result.messages[0]?.content as string;
 		expect(sysMsg).toContain('hasGrammarIssues');
+		// 指代模糊等表达层面问题不属于语法错误，避免语法正确的句子被送进改进分支
+		expect(sysMsg).toContain('指代模糊');
+		expect(sysMsg).toContain('未转义的英文双引号');
 	});
 
 	it('语法改进 prompt 应能正常编译并执行 invoke', async () => {
@@ -78,6 +86,9 @@ describe('ChatPromptTemplate 编译', () => {
 		expect(result.messages.length).toBe(2);
 		const sysMsg = result.messages[0]?.content as string;
 		expect(sysMsg).toContain('improvedSentence');
+		// 改进分支同样要求输出中文翻译
+		expect(sysMsg).toContain('translation');
+		expect(sysMsg).toContain('未转义的英文双引号');
 	});
 
 	it('翻译评估 prompt 应能正常编译并执行 invoke', async () => {

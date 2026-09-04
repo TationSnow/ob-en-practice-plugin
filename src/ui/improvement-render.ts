@@ -31,6 +31,12 @@ export function renderImprovementResult(
 		.createEl('p', { text: originalSentence || result.sentence })
 		.addClass('en-improvement-sentence');
 
+	// 中文翻译：翻译原始句子，帮助理解原句含义
+	const translationSection = createResultSection(card, '中文翻译');
+	translationSection
+		.createEl('p', { text: result.translation })
+		.addClass('en-translation-text');
+
 	const issuesSection = createResultSection(card, '语法错误');
 	for (const issue of result.issues) {
 		const item = issuesSection.createDiv('en-improvement-issue');

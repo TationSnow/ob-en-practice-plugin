@@ -153,6 +153,7 @@ export function renderWritingPractice(
 				setStep,
 				theme,
 				seed,
+				reference,
 			);
 			setStep(1);
 			generateStatus.setState('success');
@@ -186,6 +187,7 @@ export function renderWritingPractice(
  * @param setStep 更新工作流步骤
  * @param theme 实际使用的主题（null 表示不指定）
  * @param seed 本次生成使用的随机数种子
+ * @param reference 生成题目时使用的参考英语表达，评估时一并提供
  */
 function renderTranslationQuestion(
 	questionArea: HTMLElement,
@@ -196,6 +198,7 @@ function renderTranslationQuestion(
 	setStep: (step: number) => void,
 	theme: string | null,
 	seed: string,
+	reference: string,
 ): void {
 	questionArea.empty();
 	questionArea.removeClass('is-hidden');
@@ -252,7 +255,7 @@ function renderTranslationQuestion(
 				const result = await evaluateTranslation(
 					question.chinese,
 					userTranslation,
-					'',
+					reference,
 					difficulty,
 					plugin.settings,
 					{ debug: plugin.settings.debugMode },

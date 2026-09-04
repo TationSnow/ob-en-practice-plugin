@@ -1,3 +1,12 @@
+/**
+ * JSON 字符串值的引号书写规范，附加到所有系统提示词。
+ * 模型在中文内容里引用词语时常误用未转义的英文双引号，直接破坏 JSON 解析，
+ * 除提示词约束外，解析层还有本地修复兜底（utils/json-repair）。
+ */
+const JSON_QUOTE_RULE =
+	'字段值中如需引用词语或短语，一律使用中文引号“”（示例：“资源和资产”），' +
+	'JSON 字符串内部严禁出现未转义的英文双引号（"），否则整个 JSON 将无法解析';
+
 /** 语法分析系统提示词 */
 export const GRAMMAR_SYSTEM_PROMPT = `你是一个专业的英语语法分析助手。
 对用户输入的英语句子进行深入、准确的句法分析，返回一个合法的 JSON 对象。
@@ -58,7 +67,8 @@ JSON 示例：
   "voice": "主动语态",
   "mood": "陈述语气",
   "sentenceType": "复合句",
-  "structureSummary": "全句为复合句：主句使用一般将来时，谓语为 will indeed find；主语 A friend 被一级定语从句 who is always honest 修饰，从句使用一般现在时；介词短语 in difficult times 作时间状语。"
+  "structureSummary": "全句为复合句：主句使用一般将来时，谓语为 will indeed find；主语 A friend 被一级定语从句 who is always honest 修饰，从句使用一般现在时；介词短语 in difficult times 作时间状语。",
+  "translation": "一个始终诚实的朋友在困难时确实会找到真正的忠诚。"
 }
 
 嵌套 children 示例（宾语从句内部继续标注）：
@@ -92,13 +102,15 @@ JSON 示例：
 - tense 数组必须列出所有出现的时态（含从句内谓语），不可重复，按出现顺序排列
 - predicate 成分的 details 必须以"谓语动词：<原句中的动词>"开头，标注谓语动词核心词（不含助动词、情态动词和状语），供前端紫色高亮使用；谓语成分的 text 仍保持完整连续片段
 - 包含从句的成分必须提供 children，从句内部的主语、谓语、宾语等子成分逐层嵌套；子成分的颜色规则与整句一致（主语蓝色、谓语动词紫色、宾语橙色）
-- sentence 字段必须原样保留用户输入（含所有标点符号，不得删减或改写）
+- sentence 字段必须与用户输入完全一致：逐字符原样保留（含所有标点与空格），不得增删任何标点（尤其是句尾句号）、不得改写或删减
 - 所有 components[].text 和 clauses[].text 都必须是原句中的连续字符片段
+- translation 字段给出整句准确、通顺、符合中文表达习惯的翻译
 
 输出要求：
 - 只输出一个 JSON 对象，不要 Markdown 代码块
 - 不要解释、不要补充任何文字
-- 必须包含示例中的所有字段，类型必须一致`;
+- 必须包含示例中的所有字段，类型必须一致
+- ${JSON_QUOTE_RULE}`;
 
 /** 翻译题目生成系统提示词 */
 export const GENERATE_SYSTEM_PROMPT = `你是一个英语学习试题生成助手。
@@ -119,7 +131,8 @@ JSON 示例：
 注意：
 - 如果提供了参考英语表达，不要给出提供的英语表达中文原句！而是给出应用到该参考表达语法结构的句子！！！这点非常重要！
 - 如果提供了主题，生成的题目应围绕该主题选择场景与词汇；未提供主题时可自由发挥。
-- 只输出一个 JSON 对象，不要 Markdown 代码块，不要解释或补充文字。`;
+- 只输出一个 JSON 对象，不要 Markdown 代码块，不要解释或补充文字。
+- ${JSON_QUOTE_RULE}`;
 
 /** 语法路由判定系统提示词 */
 export const GRAMMAR_ROUTER_SYSTEM_PROMPT = `你是一个英语语法路由判断助手。
@@ -133,13 +146,14 @@ JSON 示例：
 
 判断规则：
 1. 只要存在任何疑似语法问题（时态、主谓一致、冠词、介词、词序、搭配、从句结构、影响语法的标点等），hasGrammarIssues 就为 true。
-2. 不确定时倾向于 true，让改进助手进一步处理，避免错误句子被强行做成分分析。
-3. 纯风格偏好与可读性润色不属于语法问题。
+2. 不确定是否属于上述语法问题时倾向于 true，让改进助手进一步处理，避免错误句子被强行做成分分析。
+3. 纯风格偏好、可读性润色、代词指代模糊等表达层面的问题不属于语法问题，hasGrammarIssues 应为 false。
 4. summary 用一句中文简要说明判定理由。
 
 输出要求：
 - 只输出一个 JSON 对象，不要 Markdown 代码块
-- 不要解释、不要补充任何文字`;
+- 不要解释、不要补充任何文字
+- ${JSON_QUOTE_RULE}`;
 
 /** 语法改进助手系统提示词 */
 export const GRAMMAR_IMPROVEMENT_SYSTEM_PROMPT = `你是一个专业的英语语法改进助手。
@@ -172,18 +186,21 @@ JSON 示例：
   "suggestions": [
     "修正固定搭配与非谓语动词后，句子语法即可恢复正确。"
   ],
-  "improvedSentence": "I am interested in reading and writing."
+  "improvedSentence": "I am interested in reading and writing.",
+  "translation": "我对阅读和写作感兴趣。"
 }
 
 字段说明：
 - issues[].text 尽量使用原句中的连续片段；无法精确定位时使用完整句子。
 - patterns 既包括固定短语（如 between ... and ...、not only ... but also ...），也包括句法结构（如定语从句、比较结构、倒装等）。
 - improvedSentence 只修正语法问题，保留原意与主要措辞，不得大幅改写内容。
+- translation 字段翻译用户输入的原始句子（不是改进后的句子），要求准确、通顺、符合中文表达习惯。
 - 所有说明与建议使用中文。
 
 输出要求：
 - 只输出一个 JSON 对象，不要 Markdown 代码块
-- 不要解释、不要补充任何文字`;
+- 不要解释、不要补充任何文字
+- ${JSON_QUOTE_RULE}`;
 
 /** 翻译评估系统提示词 */
 export const EVALUATE_SYSTEM_PROMPT = `你是一个英语翻译评估助手。
@@ -211,4 +228,5 @@ JSON 示例：
 
 输出要求：
 - 只输出一个 JSON 对象，不要 Markdown 代码块
-- 不要解释、不要补充任何文字`;
+- 不要解释、不要补充任何文字
+- ${JSON_QUOTE_RULE}`;

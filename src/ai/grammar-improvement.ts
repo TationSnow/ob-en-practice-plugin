@@ -2,11 +2,10 @@ import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { SystemMessage } from '@langchain/core/messages';
 import type { EnPracticeSettings } from '../settings';
 import type { GrammarImprovementResult } from '../types';
-import { createModel } from './index';
 import { GRAMMAR_IMPROVEMENT_SYSTEM_PROMPT } from './prompts';
 import { grammarImprovementSchema } from './schemas';
 import {
-	invokeStructured,
+	runStructuredTask,
 	type StructuredOutputCallOptions,
 } from './structured-output';
 
@@ -15,6 +14,9 @@ const IMPROVEMENT_PROMPT = ChatPromptTemplate.fromMessages([
 	new SystemMessage(GRAMMAR_IMPROVEMENT_SYSTEM_PROMPT),
 	['human', '{sentence}'],
 ]);
+
+/** 改进建议输出体积可预期，收紧上限防止失控生成（曾出现 140KB 的重复输出） */
+const IMPROVEMENT_MAX_TOKENS = 4096;
 
 /**
  * 对存在语法问题的句子给出改进建议。
@@ -28,16 +30,11 @@ export async function improveGrammar(
 	settings: EnPracticeSettings,
 	options?: StructuredOutputCallOptions,
 ): Promise<GrammarImprovementResult> {
-	const model = createModel(settings);
-	return invokeStructured({
-		model,
+	return runStructuredTask(settings, options, {
+		outputName: 'grammarImprovement',
 		prompt: IMPROVEMENT_PROMPT,
 		schema: grammarImprovementSchema,
-		outputName: 'grammarImprovement',
 		variables: { sentence },
-		maxRetries: settings.retryCount,
-		onToken: settings.streamingEnabled ? options?.onToken : undefined,
-		debug: options?.debug,
-		thinkingEnabled: settings.thinkingEnabled,
+		maxTokens: IMPROVEMENT_MAX_TOKENS,
 	});
 }

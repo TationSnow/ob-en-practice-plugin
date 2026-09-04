@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { validateGrammarResult } from '../src/ai/grammar-validator';
+import {
+	repairGrammarResult,
+	validateGrammarResult,
+} from '../src/ai/grammar-validator';
 import type { GrammarResult } from '../src/types';
 
 const SENTENCE =
 	'A friend who is always honest will indeed find true loyalty in difficult times.';
+
+/** 去掉句尾句号的版本，模拟“用户输入无句号”的场景 */
+const PLAIN_SENTENCE = SENTENCE.replace(/\.$/, '');
 
 const VALID_RESULT: GrammarResult = {
 	sentence: SENTENCE,
@@ -48,6 +54,7 @@ const VALID_RESULT: GrammarResult = {
 	mood: '陈述语气',
 	sentenceType: '复合句',
 	structureSummary: '主句含定语从句，时态组合为将来时 + 现在时。',
+	translation: '一个始终诚实的朋友在困难时确实会找到真正的忠诚。',
 };
 
 describe('validateGrammarResult', () => {
@@ -169,5 +176,151 @@ describe('validateGrammarResult', () => {
 		expect(validateGrammarResult(wrongMainType, SENTENCE)).toContain(
 			'level 0 的类型必须为主句',
 		);
+	});
+});
+
+describe('repairGrammarResult', () => {
+	it('sentence 仅差句尾句号时修复为原句', () => {
+		// 用户输入没有句尾句号，模型按英文习惯补上了句号
+		const result: GrammarResult = {
+			...VALID_RESULT,
+			sentence: PLAIN_SENTENCE,
+		};
+		repairGrammarResult(result, SENTENCE);
+		expect(result.sentence).toBe(SENTENCE);
+		expect(validateGrammarResult(result, SENTENCE)).toEqual([]);
+	});
+
+	it('sentence 存在多余空白时修复为原句', () => {
+		const result: GrammarResult = {
+			...VALID_RESULT,
+			sentence: `  ${SENTENCE.replace(/\s+/g, ' ')}  `,
+		};
+		repairGrammarResult(result, SENTENCE);
+		expect(result.sentence).toBe(SENTENCE);
+	});
+
+	it('sentence 语义改写不属于可修复差异', () => {
+		const result: GrammarResult = {
+			...VALID_RESULT,
+			sentence: 'A friend will find loyalty.',
+		};
+		repairGrammarResult(result, SENTENCE);
+		expect(result.sentence).toBe('A friend will find loyalty.');
+		expect(validateGrammarResult(result, SENTENCE)).toContain(
+			'sentence 与原句不一致',
+		);
+	});
+
+	it('片段比原句短（缺句尾句号）时无需修复，校验直接通过', () => {
+		const result: GrammarResult = {
+			...VALID_RESULT,
+			clauses: [
+				{
+					text: PLAIN_SENTENCE,
+					level: 0,
+					type: '主句',
+					function: '全句主干',
+				},
+			],
+		};
+		repairGrammarResult(result, SENTENCE);
+		// 片段本身已是原句连续片段，保持模型输出不变
+		expect(result.clauses[0]?.text).toBe(PLAIN_SENTENCE);
+		expect(validateGrammarResult(result, SENTENCE)).toEqual([]);
+	});
+
+	it('成分文本带原句没有的句尾句号时应修复为原句中的精确子串', () => {
+		const result: GrammarResult = {
+			...VALID_RESULT,
+			components: [
+				{
+					text: 'in difficult times.',
+					type: 'adverbial',
+				},
+			],
+			clauses: [
+				{
+					text: SENTENCE,
+					level: 0,
+					type: '主句',
+					function: '全句主干',
+				},
+			],
+		};
+		repairGrammarResult(result, PLAIN_SENTENCE);
+		expect(result.components[0]?.text).toBe('in difficult times');
+		expect(validateGrammarResult(result, PLAIN_SENTENCE)).toEqual([]);
+	});
+
+	it('子成分应相对修复后的父成分修复', () => {
+		const result: GrammarResult = {
+			...VALID_RESULT,
+			components: [
+				{
+					text: 'true loyalty',
+					type: 'object',
+					children: [{ text: 'loyalty.', type: 'other' }],
+				},
+			],
+		};
+		repairGrammarResult(result, SENTENCE);
+		expect(result.components[0]?.children?.[0]?.text).toBe('loyalty');
+		expect(validateGrammarResult(result, SENTENCE)).toEqual([]);
+	});
+
+	it('无法修复的幻觉片段保持原样，由校验报错', () => {
+		const result: GrammarResult = {
+			...VALID_RESULT,
+			components: [
+				{
+					text: 'honest friend who is always.',
+					type: 'subject',
+				},
+			],
+		};
+		repairGrammarResult(result, SENTENCE);
+		// 剥除句尾标点后仍不是连续片段，不应篡改文本
+		expect(result.components[0]?.text).toBe('honest friend who is always.');
+		expect(validateGrammarResult(result, SENTENCE)).toContain(
+			'成分未在原句中找到连续片段：honest friend who is always.',
+		);
+	});
+
+	it('回归：用户输入无句号而模型补句号时应整体自动修复', () => {
+		// 取自真实报错日志的句子：输入无句尾句号，模型输出全部带句号
+		const input =
+			'The parents and grandparents of your students are resources and assets for their children';
+		const result: GrammarResult = {
+			sentence: `${input}.`,
+			components: [
+				{
+					text: 'The parents and grandparents of your students',
+					type: 'subject',
+				},
+				{ text: 'are', type: 'predicate' },
+				{ text: 'resources and assets', type: 'complement' },
+				{ text: 'for their children', type: 'adverbial' },
+			],
+			clauses: [
+				{
+					text: `${input}.`,
+					level: 0,
+					type: '主句',
+					function: '全句主干，陈述主要观点',
+				},
+			],
+			tense: ['一般现在时'],
+			voice: '主动语态',
+			mood: '陈述语气',
+			sentenceType: '简单句',
+			structureSummary: '主系表结构。',
+			translation: '你学生的父母和祖父母是他们孩子的资源和财富。',
+		};
+
+		repairGrammarResult(result, input);
+		expect(validateGrammarResult(result, input)).toEqual([]);
+		expect(result.sentence).toBe(input);
+		expect(result.clauses[0]?.text).toBe(input);
 	});
 });

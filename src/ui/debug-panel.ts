@@ -75,12 +75,16 @@ function createEmbeddedDebugPanel(container: HTMLElement): HTMLElement {
 	return root;
 }
 
+/** 单条详情超过该长度时默认折叠，点击可展开完整内容 */
+const DETAIL_COLLAPSE_LENGTH = 400;
+
 /**
  * 渲染调试日志条目列表。
+ * 长详情用原生 details/summary 折叠（键盘可访问），短详情直接完整展示。
  * @param container 日志容器
  * @param entries 调试日志
  */
-function renderDebugEntries(
+export function renderDebugEntries(
 	container: HTMLElement,
 	entries: readonly AiDebugEntry[],
 ): void {
@@ -105,11 +109,36 @@ function renderDebugEntries(
 		);
 
 		if (entry.detail) {
-			row.createEl('pre', { text: entry.detail }).addClass(
-				'en-debug-entry-detail',
-			);
+			renderEntryDetail(row, entry.detail);
 		}
 	}
+}
+
+/**
+ * 渲染单条日志详情。
+ * 详情内容在写入时已保证完整（不截断），这里仅控制展示形态：
+ * 超过阈值折叠为 details/summary，展开后可查看并完整复制全部内容。
+ * @param row 日志条目行
+ * @param detail 详情文本
+ */
+function renderEntryDetail(row: HTMLElement, detail: string): void {
+	if (detail.length <= DETAIL_COLLAPSE_LENGTH) {
+		row.createEl('pre', { text: detail }).addClass(
+			'en-debug-entry-detail',
+		);
+		return;
+	}
+
+	const detailsEl = row.createEl('details');
+	detailsEl.addClass('en-debug-entry-collapse');
+	const summary = detailsEl.createEl('summary', { text: '展开详情' });
+	detailsEl.createEl('pre', { text: detail }).addClass(
+		'en-debug-entry-detail',
+	);
+	// 展开状态切换时同步摘要文案，提示当前可收起
+	detailsEl.addEventListener('toggle', () => {
+		summary.setText(detailsEl.open ? '收起详情' : '展开详情');
+	});
 }
 
 /**

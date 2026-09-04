@@ -14,14 +14,10 @@ export interface EnPracticeSettings {
 	baseUrl: string;
 	/** 模型名称（必填），如 gpt-4o-mini */
 	modelName: string;
-	/** 模型输出解析失败时的最大自动重试次数（0-3） */
-	retryCount: number;
 	/** 调试模式：开启后显示 AI 请求调试面板 */
 	debugMode: boolean;
 	/** 是否启用流式输出 */
 	streamingEnabled: boolean;
-	/** 是否启用模型思考模式（DeepSeek 等推理模型） */
-	thinkingEnabled: boolean;
 	/** 单次请求生成内容的最大 token 数 */
 	maxTokens: number;
 	/** 是否启用 HTTP 代理（如 Clash 等本地代理） */
@@ -36,18 +32,26 @@ export const DEFAULT_SETTINGS: EnPracticeSettings = {
 	apiKey: '',
 	baseUrl: '',
 	modelName: '',
-	retryCount: 1,
 	debugMode: false,
 	streamingEnabled: true,
-	thinkingEnabled: false,
 	maxTokens: 4096,
 	proxyEnabled: false,
 	proxyUrl: 'http://127.0.0.1:7897',
 	writingThemes: [],
 };
 
+/**
+ * 插件设置页。
+ * getSettingDefinitions() 是设置项的唯一事实来源：
+ * - Obsidian 1.13+ 由框架按声明式定义渲染并纳入设置搜索，
+ *   通过本类的 getControlValue/setControlValue 读写插件设置；
+ * - 旧版本由 display() 按同一份定义手工渲染，避免设置项双份维护。
+ */
 export class EnPracticeSettingTab extends PluginSettingTab {
 	plugin: EnPracticePlugin;
+
+	/** 旧版渲染中需要随设置变化刷新禁用状态的控件（如代理地址依赖启用代理开关） */
+	private readonly disabledUpdaters: (() => void)[] = [];
 
 	constructor(app: App, plugin: EnPracticePlugin) {
 		super(app, plugin);
@@ -55,8 +59,7 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 	}
 
 	/**
-	 * 声明式设置定义：供 Obsidian 1.13+ 的设置搜索与渲染使用。
-	 * 保留 display() 作为旧版本 Obsidian 的回退渲染。
+	 * 声明式设置定义，供 Obsidian 1.13+ 渲染与设置搜索使用。
 	 */
 	getSettingDefinitions(): SettingDefinitionItem[] {
 		return [
@@ -106,6 +109,8 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 							type: 'text',
 							key: 'proxyUrl',
 							placeholder: 'http://127.0.0.1:7897',
+							// 代理地址仅在启用代理后可编辑
+							disabled: () => !this.plugin.settings.proxyEnabled,
 						},
 					},
 				],
@@ -115,16 +120,8 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 				heading: '请求行为',
 				items: [
 					{
-						name: '启用思考模式',
-						desc: '开启后向 deepseek 等推理模型请求思考模式；思考模式不支持函数调用，且会消耗更多 token。',
-						control: {
-							type: 'toggle',
-							key: 'thinkingEnabled',
-						},
-					},
-					{
 						name: '最长 token',
-						desc: '单次请求生成内容的最大 token 数（256-32768），思考模式下建议调大。',
+						desc: '单次请求生成内容的最大 token 数（256-32768）。',
 						control: {
 							type: 'number',
 							key: 'maxTokens',
@@ -133,19 +130,6 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 							step: 256,
 							placeholder: '4096',
 							defaultValue: 4096,
-						},
-					},
-					{
-						name: '解析重试次数',
-						desc: '模型输出解析失败时的最大自动重试次数（0-3），默认 1。',
-						control: {
-							type: 'number',
-							key: 'retryCount',
-							min: 0,
-							max: 3,
-							step: 1,
-							placeholder: '1',
-							defaultValue: 1,
 						},
 					},
 					{
@@ -175,177 +159,181 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 		];
 	}
 
+	/**
+	 * 读取控件对应的设置值（1.13+ 声明式框架的官方读写钩子）。
+	 * @param key 设置键
+	 * @returns 当前设置值
+	 */
+	getControlValue(key: string): unknown {
+		const record = this.plugin.settings as unknown as Record<string, unknown>;
+		return record[key];
+	}
+
+	/**
+	 * 写入控件对应的设置值并保存（1.13+ 声明式框架的官方读写钩子）。
+	 * @param key 设置键
+	 * @param value 新值
+	 */
+	async setControlValue(key: string, value: unknown): Promise<void> {
+		const record = this.plugin.settings as unknown as Record<string, unknown>;
+		record[key] = value;
+		await this.plugin.saveSettings();
+		this.refreshControlState();
+	}
+
+	/**
+	 * 旧版 Obsidian（<1.13）的回退渲染：遍历声明式定义逐组绘制，
+	 * 与 1.13+ 的声明式渲染保持同一份设置项来源。
+	 */
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+		this.disabledUpdaters.length = 0;
 
-		new Setting(containerEl).setName('API 配置').setHeading();
-
-		new Setting(containerEl)
-			.setName('API 密钥')
-			.setDesc('OpenAI 兼容 API 的密钥（必填，部分不需要 key 的服务随便填写即可）')
-			.addText((text) =>
-				text
-					.setPlaceholder('sk-...')
-					.setValue(this.plugin.settings.apiKey)
-					.onChange(async (value) => {
-						this.plugin.settings.apiKey = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName('API 地址')
-			.setDesc('OpenAI 兼容格式的请求链接（必填），如 https://api.openai.com/v1')
-			.addText((text) =>
-				text
-					.setPlaceholder('https://api.openai.com/v1')
-					.setValue(this.plugin.settings.baseUrl)
-					.onChange(async (value) => {
-						this.plugin.settings.baseUrl = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName('模型名称')
-			.setDesc('使用的模型名称（必填），如 gpt-4o-mini')
-			.addText((text) =>
-				text
-					.setPlaceholder('gpt-4o-mini')
-					.setValue(this.plugin.settings.modelName)
-					.onChange(async (value) => {
-						this.plugin.settings.modelName = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		const proxyUrlSetting = new Setting(containerEl)
-			.setName('代理地址')
-			.setDesc('代理地址，格式为 http://127.0.0.1:7897。')
-			.addText((text) =>
-				text
-					.setPlaceholder('http://127.0.0.1:7897')
-					.setValue(this.plugin.settings.proxyUrl)
-					.onChange(async (value) => {
-						this.plugin.settings.proxyUrl = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-		const proxyUrlInput = proxyUrlSetting.controlEl.querySelector('input');
-
-		new Setting(containerEl)
-			.setName('启用代理')
-			.setDesc('通过本地 HTTP 代理访问海外 API（如 Clash Verge 混合端口 7897），桌面端生效。')
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.proxyEnabled)
-					.onChange(async (value) => {
-						this.plugin.settings.proxyEnabled = value;
-						await this.plugin.saveSettings();
-						proxyUrlSetting.settingEl.toggleClass('is-disabled', !value);
-						if (proxyUrlInput) {
-							proxyUrlInput.disabled = !value;
-						}
-					}),
-			);
-
-		if (!this.plugin.settings.proxyEnabled) {
-			proxyUrlSetting.settingEl.addClass('is-disabled');
-			if (proxyUrlInput) {
-				proxyUrlInput.disabled = true;
+		for (const group of this.getSettingDefinitions()) {
+			if (!('items' in group) || !group.items) {
+				continue;
+			}
+			const heading = 'heading' in group ? group.heading : undefined;
+			if (!heading) {
+				continue;
+			}
+			new Setting(containerEl).setName(heading).setHeading();
+			for (const item of group.items) {
+				this.renderDefinitionItem(containerEl, item);
 			}
 		}
+		this.refreshControlState();
+	}
 
-		new Setting(containerEl).setName('请求行为').setHeading();
+	/**
+	 * 把单条控件定义渲染为 Setting 行（旧版回退渲染用）。
+	 * 通过 “control” 属性探测过滤掉分组/页面节点，仅渲染控件项。
+	 * @param containerEl 容器
+	 * @param item 设置定义项
+	 */
+	private renderDefinitionItem(
+		containerEl: HTMLElement,
+		item: SettingDefinitionItem,
+	): void {
+		if (!('control' in item) || !item.control) {
+			return;
+		}
+		const control = item.control;
+		const setting = new Setting(containerEl)
+			.setName(item.name)
+			.setDesc(item.desc ?? '');
 
-		new Setting(containerEl)
-			.setName('启用思考模式')
-			.setDesc('开启后向 deepseek 等推理模型请求思考模式；思考模式不支持函数调用，且会消耗更多 token。')
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.thinkingEnabled)
-					.onChange(async (value) => {
-						this.plugin.settings.thinkingEnabled = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName('最长 token')
-			.setDesc('单次请求生成内容的最大 token 数（256-32768），思考模式下建议调大。')
-			.addText((text) => {
-				text.inputEl.setAttr('type', 'number');
-				text.inputEl.setAttr('min', '256');
-				text.inputEl.setAttr('max', '32768');
-				text.inputEl.setAttr('step', '256');
-				text.setPlaceholder('4096');
-				text.setValue(String(this.plugin.settings.maxTokens));
-				text.onChange(async (value) => {
-					const parsed = Number.parseInt(value, 10);
-					if (Number.isNaN(parsed)) {
-						return;
-					}
-					this.plugin.settings.maxTokens = Math.min(
-						32768,
-						Math.max(256, Math.floor(parsed)),
-					);
-					text.setValue(String(this.plugin.settings.maxTokens));
-					await this.plugin.saveSettings();
-				});
-				return text;
-			});
-
-		new Setting(containerEl)
-			.setName('解析重试次数')
-			.setDesc('模型输出解析失败时的最大自动重试次数（0-3），默认 1。')
-			.addText((text) => {
-				text.inputEl.setAttr('type', 'number');
-				text.inputEl.setAttr('min', '0');
-				text.inputEl.setAttr('max', '3');
-				text.inputEl.setAttr('step', '1');
+		if (control.type === 'text') {
+			setting.addText((text) =>
 				text
-					.setPlaceholder('1')
-					.setValue(String(this.plugin.settings.retryCount))
+					.setPlaceholder(control.placeholder ?? '')
+					.setValue(String(this.readControlValue(control.key, '')))
 					.onChange(async (value) => {
-						const parsed = Number.parseInt(value, 10);
-						if (Number.isNaN(parsed)) {
-							return;
-						}
-						this.plugin.settings.retryCount = Math.min(
-							3,
-							Math.max(0, Math.floor(parsed)),
-						);
-						text.setValue(String(this.plugin.settings.retryCount));
-						await this.plugin.saveSettings();
-					});
-				return text;
+						await this.setControlValue(control.key, value);
+					}),
+			);
+		} else if (control.type === 'toggle') {
+			setting.addToggle((toggle) =>
+				toggle
+					.setValue(Boolean(this.readControlValue(control.key, false)))
+					.onChange(async (value) => {
+						await this.setControlValue(control.key, value);
+					}),
+			);
+		} else if (control.type === 'number') {
+			this.renderNumberControl(setting, control);
+		}
+
+		// 控件可声明禁用条件（如代理地址依赖启用代理开关），渲染时求值并登记刷新器
+		const disabledOption = control.disabled;
+		if (disabledOption !== undefined) {
+			const applyDisabled = (): void => {
+				const disabled =
+					typeof disabledOption === 'function'
+						? disabledOption()
+						: disabledOption;
+				setting.setDisabled(disabled);
+			};
+			this.disabledUpdaters.push(applyDisabled);
+		}
+	}
+
+	/**
+	 * 渲染数字控件：用数字输入框配合 min/max 钳制，
+	 * 非法输入不落库，越界输入自动收敛到合法区间。
+	 * @param setting 所在 Setting 行
+	 * @param control 数字控件定义
+	 */
+	private renderNumberControl(
+		setting: Setting,
+		control: {
+			key: string;
+			placeholder?: string;
+			min?: number;
+			max?: number;
+			step?: number | 'any';
+			defaultValue?: number;
+		},
+	): void {
+		setting.addText((text) => {
+			text.inputEl.setAttr('type', 'number');
+			if (control.min !== undefined) {
+				text.inputEl.setAttr('min', String(control.min));
+			}
+			if (control.max !== undefined) {
+				text.inputEl.setAttr('max', String(control.max));
+			}
+			if (control.step !== undefined) {
+				text.inputEl.setAttr('step', String(control.step));
+			}
+			text.setPlaceholder(control.placeholder ?? '');
+			text.setValue(
+				String(this.readControlValue(control.key, control.defaultValue ?? 0)),
+			);
+			text.onChange(async (value) => {
+				const parsed = Number.parseInt(value, 10);
+				if (Number.isNaN(parsed)) {
+					return;
+				}
+				let clamped = parsed;
+				if (control.min !== undefined) {
+					clamped = Math.max(control.min, clamped);
+				}
+				if (control.max !== undefined) {
+					clamped = Math.min(control.max, clamped);
+				}
+				text.setValue(String(clamped));
+				await this.setControlValue(control.key, clamped);
 			});
+			return text;
+		});
+	}
 
-		new Setting(containerEl)
-			.setName('启用流式输出')
-			.setDesc('关闭后改为非流式请求，便于排查流式相关问题。')
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.streamingEnabled)
-					.onChange(async (value) => {
-						this.plugin.settings.streamingEnabled = value;
-						await this.plugin.saveSettings();
-					}),
-			);
+	/**
+	 * 读取控件对应的设置值，值缺失时回退到指定默认值（旧版渲染用）。
+	 * @param key 设置键
+	 * @param fallback 值缺失时的回退
+	 * @returns 当前设置值
+	 */
+	private readControlValue(key: string, fallback: unknown): unknown {
+		const value = this.getControlValue(key);
+		return value === undefined || value === null ? fallback : value;
+	}
 
-		new Setting(containerEl).setName('调试').setHeading();
-
-		new Setting(containerEl)
-			.setName('调试模式')
-			.setDesc('开启后在面板页签栏中显示调试页签与 AI 请求日志。')
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.debugMode)
-					.onChange(async (value) => {
-						this.plugin.settings.debugMode = value;
-						await this.plugin.saveSettings();
-					}),
-			);
+	/**
+	 * 刷新依赖型控件的禁用状态。
+	 * 旧版渲染走登记的刷新器；1.13+ 声明式框架调用官方 refreshDomState()。
+	 */
+	private refreshControlState(): void {
+		for (const updater of this.disabledUpdaters) {
+			updater();
+		}
+		// refreshDomState 仅存在于 Obsidian 1.13+（minAppVersion 为 1.7.2），
+		// 运行时探测后调用，旧版本自动跳过
+		const declarative = this as unknown as {
+			refreshDomState?: () => void;
+		};
+		declarative.refreshDomState?.();
 	}
 }

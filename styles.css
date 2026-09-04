@@ -437,6 +437,12 @@
 	justify-content: flex-end;
 }
 
+/* ===== 中文翻译 ===== */
+.en-translation-text {
+	margin: 0;
+	color: var(--text-normal);
+}
+
 /* ===== 语法标注 ===== */
 .en-sentence-paragraph {
 	margin: 0 0 var(--size-4-2);
@@ -972,6 +978,28 @@
 	white-space: pre-wrap;
 	word-break: break-all;
 	color: var(--text-normal);
+}
+
+/* 长详情折叠结构：原生 details/summary，自带键盘可访问性 */
+.en-debug-entry-collapse {
+	margin: 0;
+}
+
+.en-debug-entry-collapse > summary {
+	cursor: pointer;
+	color: var(--text-muted);
+	margin-bottom: var(--size-4-1);
+	user-select: none;
+}
+
+.en-debug-entry-collapse > summary:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+	border-radius: var(--radius-s);
+}
+
+.en-debug-entry-collapse > pre.en-debug-entry-detail {
+	margin: 0;
 }
 
 .en-debug-error {

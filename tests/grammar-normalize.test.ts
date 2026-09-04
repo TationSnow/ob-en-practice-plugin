@@ -53,6 +53,7 @@ const BUG_FIXTURE: GrammarResult = {
 	sentenceType: '复合句',
 	structureSummary:
 		'全句为复合句，主句为Some people like Silent Gear，while引导的状语从句表示对比。',
+	translation: '有些人喜欢 Silent Gear，而有些人喜欢 Tinker\'s Construct。',
 };
 
 describe('normalizeGrammarResult', () => {

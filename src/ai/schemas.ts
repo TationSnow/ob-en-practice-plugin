@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+// 所有对象 schema 均不使用 .strict()：
+// 弱模型偶尔会在 JSON 中附加额外说明字段，strict 会拒绝整个输出，
+// 默认模式会静默剥离未知字段，对解析更宽容，也不影响合法输出。
+
 /** 语法成分类型常量，供 UI 标注与 schema 校验共用 */
 export const COMPONENT_TYPES = [
 	'subject',
@@ -58,7 +62,7 @@ const sentenceComponentSchema: z.ZodType<SentenceComponent> = z.lazy(() =>
 			.array(sentenceComponentSchema)
 			.optional()
 			.describe('可选，从句内部继续标注的主语、谓语、宾语等子成分，逐层嵌套'),
-	}).strict(),
+	}),
 );
 
 /** 从句信息 schema */
@@ -71,7 +75,7 @@ const clauseInfoSchema = z.object({
 		.describe('0 为主句，1 为一级从句，2 为二级从句，依此类推'),
 	type: z.enum(CLAUSE_TYPES).describe('主句类型为“主句”，其余为具体从句类型'),
 	function: z.string().describe('该从句在句中的作用，如修饰主语、作条件状语等'),
-}).strict();
+});
 
 /** 语法分析结果 schema */
 export const grammarSchema = z.object({
@@ -90,7 +94,8 @@ export const grammarSchema = z.object({
 	mood: z.string().describe('语气'),
 	sentenceType: z.string().describe('句型'),
 	structureSummary: z.string().describe('结构概括'),
-}).strict();
+	translation: z.string().describe('整句准确、地道的中文翻译'),
+});
 
 export type ClauseInfo = z.infer<typeof clauseInfoSchema>;
 export type GrammarResult = z.infer<typeof grammarSchema>;
@@ -100,7 +105,7 @@ export const translationQuestionSchema = z.object({
 	chinese: z.string().describe('中文语句'),
 	hint: z.string().describe('提示信息，包含目标语法点'),
 	targetGrammar: z.string().describe('目标语法点说明'),
-}).strict();
+});
 
 export type TranslationQuestion = z.infer<typeof translationQuestionSchema>;
 
@@ -111,7 +116,7 @@ export const translationEvaluationSchema = z.object({
 	weaknesses: z.array(z.string()).describe('不足列表'),
 	suggestions: z.string().describe('具体的改进建议'),
 	improvedVersion: z.string().describe('优化后的翻译版本'),
-}).strict();
+});
 
 export type TranslationEvaluation = z.infer<typeof translationEvaluationSchema>;
 
@@ -122,7 +127,7 @@ export const grammarRouterSchema = z.object({
 		.string()
 		.optional()
 		.describe('路由判定的简短理由，供调试与界面展示'),
-}).strict();
+});
 
 export type GrammarRouterResult = z.infer<typeof grammarRouterSchema>;
 
@@ -132,14 +137,14 @@ const grammarIssueSchema = z.object({
 	type: z.string().describe('错误类型，如 主谓一致、时态错误'),
 	explanation: z.string().describe('错误原因说明'),
 	suggestion: z.string().describe('针对该错误的修改建议'),
-}).strict();
+});
 
 /** 语法改进中的单个句式项 schema */
 const grammarPatternSchema = z.object({
 	pattern: z.string().describe('使用的句式，如 between...and...'),
 	usage: z.string().describe('句式用法说明'),
 	example: z.string().optional().describe('符合该句式的正确例句'),
-}).strict();
+});
 
 /** 语法改进结果 schema */
 export const grammarImprovementSchema = z.object({
@@ -148,7 +153,8 @@ export const grammarImprovementSchema = z.object({
 	patterns: z.array(grammarPatternSchema).describe('句子中使用的句式列表'),
 	suggestions: z.array(z.string()).describe('整体改进建议列表'),
 	improvedSentence: z.string().describe('改进后的句子，保留原意'),
-}).strict();
+	translation: z.string().describe('原始句子的准确、地道中文翻译'),
+});
 
 export type GrammarIssue = z.infer<typeof grammarIssueSchema>;
 export type GrammarPattern = z.infer<typeof grammarPatternSchema>;
