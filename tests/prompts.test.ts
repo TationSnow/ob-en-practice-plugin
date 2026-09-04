@@ -50,7 +50,7 @@ describe('ChatPromptTemplate 编译', () => {
 			new SystemMessage(GENERATE_SYSTEM_PROMPT),
 			[
 				'human',
-				'难度：{difficulty}\n参考英语表达：{reference}\n主题：{theme}\n请生成一道翻译练习题。\n随机数种子：{seed}',
+				'难度级别：{difficulty}\n参考英语表达（仅参考其语法结构，严禁翻译其内容）：{reference}\n主题（语句内容必须围绕该主题）：{theme}\n请生成一道翻译练习题。\n随机数种子：{seed}',
 			],
 		]);
 		const result = await prompt.invoke({
@@ -61,8 +61,27 @@ describe('ChatPromptTemplate 编译', () => {
 		});
 		expect(result).toBeDefined();
 		expect(result.messages.length).toBe(2);
+		const sysMsg = result.messages[0]?.content as string;
+		// 参考英语表达的角色必须明确：仅作语法参考，绝不是待翻译内容
+		expect(sysMsg).toContain('绝对不是要翻译的内容');
+		expect(sysMsg).toContain('严禁把参考英语表达翻译成中文');
+		// 禁止表面合规：改写句、近义句、仅替换个别词语同样违规
+		expect(sysMsg).toContain('仅替换个别词语');
+		// 主题是内容硬约束，防止再次出现主题被忽略的回归
+		expect(sysMsg).toContain('必须取自该主题领域');
+		// 参考句与主题同时提供时的组合规则：内容服从主题、结构借鉴参考表达
+		expect(sysMsg).toContain('内容服从主题，语法结构借鉴参考表达');
+		// 占位符语义必须说明清楚
+		expect(sysMsg).toContain('表示未提供');
+		// 必须包含 few-shot 出题示例，锚定“内容服从主题”的正确行为
+		expect(sysMsg).toContain('出题示例');
+		// 共享 JSON 引号规则保持拼接
+		expect(sysMsg).toContain('未转义的英文双引号');
 		const humanMsg = result.messages[1]?.content as string;
-		expect(humanMsg).toContain('主题：环保');
+		expect(humanMsg).toContain(
+			'参考英语表达（仅参考其语法结构，严禁翻译其内容）：（无）',
+		);
+		expect(humanMsg).toContain('主题（语句内容必须围绕该主题）：环保');
 		expect(humanMsg.endsWith('随机数种子：seed-test-1')).toBe(true);
 	});
 

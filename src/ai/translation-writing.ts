@@ -21,7 +21,8 @@ const GENERATE_PROMPT_TEMPLATE = ChatPromptTemplate.fromMessages([
 	new SystemMessage(GENERATE_SYSTEM_PROMPT),
 	[
 		'human',
-		'难度：{difficulty}\n参考英语表达：{reference}\n主题：{theme}\n请生成一道翻译练习题。\n随机数种子：{seed}',
+		// 字段必须标注角色：参考句仅作语法参考（否则模型会把参考句当待翻译内容），主题是内容硬约束（否则主题被模型忽略）
+		'难度级别：{difficulty}\n参考英语表达（仅参考其语法结构，严禁翻译其内容）：{reference}\n主题（语句内容必须围绕该主题）：{theme}\n请生成一道翻译练习题。\n随机数种子：{seed}',
 	],
 ]);
 
