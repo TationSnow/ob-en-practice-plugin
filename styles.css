@@ -728,6 +728,84 @@
 	line-height: 1.5;
 }
 
+/* ===== 模型接入口管理弹窗 ===== */
+.en-model-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	margin-bottom: var(--size-4-3);
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.en-model-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	width: 100%;
+	padding: var(--size-4-1) var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	box-sizing: border-box;
+}
+
+.en-model-row-info {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.en-model-row-name {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	color: var(--text-normal);
+	font-weight: var(--font-medium);
+}
+
+.en-model-row-meta {
+	overflow: hidden;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.en-model-row-actions {
+	display: flex;
+	flex-shrink: 0;
+	gap: var(--size-4-1);
+}
+
+.en-model-empty {
+	margin: 0;
+	padding: var(--size-4-2);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	line-height: 1.5;
+}
+
+/* ===== 面板头部模型快速切换 ===== */
+.en-model-switch {
+	max-width: 140px;
+	padding: var(--size-4-1) var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	box-sizing: border-box;
+}
+
+.en-model-switch:focus-visible {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 3px var(--background-modifier-border-focus);
+	outline: none;
+}
+
 /* ===== 可折叠区块 ===== */
 .en-collapsible {
 	border: 1px solid var(--background-modifier-border);

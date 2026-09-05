@@ -5,33 +5,38 @@ import {
 	type SettingDefinitionItem,
 } from 'obsidian';
 import type EnPracticePlugin from './main';
+import type { ModelProfile } from './settings/models';
+import { openModelManager } from './ui/model-modal';
 
 /** 插件设置项 */
 export interface EnPracticeSettings {
-	/** OpenAI 兼容 API 的密钥（可选） */
-	apiKey: string;
-	/** OpenAI 兼容 API 的请求地址（必填），如 https://api.openai.com/v1 */
-	baseUrl: string;
-	/** 模型名称（必填），如 gpt-4o-mini */
-	modelName: string;
+	/** 模型接入口列表（增删改查见设置页“管理模型接入口”） */
+	models: ModelProfile[];
+	/** 当前激活的模型接入口 id；为空表示未选择 */
+	activeModelId: string;
+	/** @deprecated 旧版单模型配置字段，仅在升级迁移与无档位回退时读取 */
+	apiKey?: string;
+	/** @deprecated 旧版单模型配置字段，仅在升级迁移与无档位回退时读取 */
+	baseUrl?: string;
+	/** @deprecated 旧版单模型配置字段，仅在升级迁移与无档位回退时读取 */
+	modelName?: string;
 	/** 调试模式：开启后显示 AI 请求调试面板 */
 	debugMode: boolean;
 	/** 是否启用流式输出 */
 	streamingEnabled: boolean;
 	/** 单次请求生成内容的最大 token 数 */
 	maxTokens: number;
-	/** 是否启用 HTTP 代理（如 Clash 等本地代理） */
+	/** 是否启用 HTTP 代理（如 Clash 等本地代理）；模型档位可覆盖 */
 	proxyEnabled: boolean;
-	/** HTTP 代理地址，如 http://127.0.0.1:7897 */
+	/** HTTP 代理地址，如 http://127.0.0.1:7897；模型档位可覆盖 */
 	proxyUrl: string;
 	/** 翻译写作的自定义主题列表，首项“随机”为固定内置选项 */
 	writingThemes: string[];
 }
 
 export const DEFAULT_SETTINGS: EnPracticeSettings = {
-	apiKey: '',
-	baseUrl: '',
-	modelName: '',
+	models: [],
+	activeModelId: '',
 	debugMode: false,
 	streamingEnabled: true,
 	maxTokens: 4096,
@@ -62,41 +67,43 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 	 * 声明式设置定义，供 Obsidian 1.13+ 渲染与设置搜索使用。
 	 */
 	getSettingDefinitions(): SettingDefinitionItem[] {
+		// 下拉选项：档位 id → 显示名；方法每次渲染都会被调用，
+		// 因此增删改档位后无需缓存失效处理
+		const options = Object.fromEntries(
+			this.plugin.settings.models.map((profile) => [profile.id, profile.name]),
+		);
 		return [
 			{
 				type: 'group',
-				heading: 'API 配置',
+				heading: '模型接入口',
 				items: [
 					{
-						name: 'API 密钥',
-						desc: 'OpenAI 兼容 API 的密钥（必填，部分不需要 key 的服务随便填写即可）',
+						name: '当前模型',
+						desc: '选择用于 AI 请求的模型接入口，支持云端与本地模型。',
 						control: {
-							type: 'text',
-							key: 'apiKey',
-							placeholder: 'sk-...',
+							type: 'dropdown',
+							key: 'activeModelId',
+							options,
 						},
 					},
 					{
-						name: 'API 地址',
-						desc: 'OpenAI 兼容格式的请求链接（必填），如 https://api.openai.com/v1',
-						control: {
-							type: 'text',
-							key: 'baseUrl',
-							placeholder: 'https://api.openai.com/v1',
+						name: '管理模型接入口',
+						desc: '添加、编辑或删除模型接入口，可为每个后端单独配置代理与输出上限。',
+						action: () => {
+							openModelManager(this.plugin, () =>
+								this.refreshModelEntries(),
+							);
 						},
 					},
-					{
-						name: '模型名称',
-						desc: '使用的模型名称（必填），如 gpt-4o-mini',
-						control: {
-							type: 'text',
-							key: 'modelName',
-							placeholder: 'gpt-4o-mini',
-						},
-					},
+				],
+			},
+			{
+				type: 'group',
+				heading: '网络代理',
+				items: [
 					{
 						name: '启用代理',
-						desc: '通过本地 HTTP 代理访问海外 API（如 Clash Verge 混合端口 7897），桌面端生效。',
+						desc: '通过本地 HTTP 代理访问海外 API（如 Clash Verge 混合端口 7897），桌面端生效；可在模型接入口中按档位覆盖。',
 						control: {
 							type: 'toggle',
 							key: 'proxyEnabled',
@@ -160,6 +167,21 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 	}
 
 	/**
+	 * 模型档位增删改后刷新设置页中的“当前模型”下拉。
+	 * 1.13+ 声明式框架调用官方 update() 重新求值定义；
+	 * 旧版本回退到整页重绘。
+	 */
+	refreshModelEntries(): void {
+		const declarative = this as unknown as { update?: () => void };
+		if (typeof declarative.update === 'function') {
+			declarative.update();
+			return;
+		}
+		// 旧版回退渲染；经结构化转型调用，避免直接引用父类已标注废弃的方法符号
+		(this as unknown as { display(): void }).display();
+	}
+
+	/**
 	 * 读取控件对应的设置值（1.13+ 声明式框架的官方读写钩子）。
 	 * @param key 设置键
 	 * @returns 当前设置值
@@ -184,6 +206,8 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 	/**
 	 * 旧版 Obsidian（<1.13）的回退渲染：遍历声明式定义逐组绘制，
 	 * 与 1.13+ 的声明式渲染保持同一份设置项来源。
+	 * 父类已在 1.13 将 display 标注为废弃，此处是面向旧版本的刻意保留；
+	 * 1.13+ 环境下框架改用 getSettingDefinitions()，本方法不会被调用。
 	 */
 	display(): void {
 		const { containerEl } = this;
@@ -207,8 +231,8 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 	}
 
 	/**
-	 * 把单条控件定义渲染为 Setting 行（旧版回退渲染用）。
-	 * 通过 “control” 属性探测过滤掉分组/页面节点，仅渲染控件项。
+	 * 把单条设置定义渲染为 Setting 行（旧版回退渲染用）。
+	 * 通过 “control”/“action” 属性探测过滤掉分组/页面节点，仅渲染可交互项。
 	 * @param containerEl 容器
 	 * @param item 设置定义项
 	 */
@@ -216,6 +240,18 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 		containerEl: HTMLElement,
 		item: SettingDefinitionItem,
 	): void {
+		// 动作行（如“管理模型接入口”）：整行说明 + 操作按钮
+		if ('action' in item && typeof item.action === 'function') {
+			new Setting(containerEl)
+				.setName(item.name)
+				.setDesc(item.desc ?? '')
+				.addButton((button) =>
+					button.setButtonText('管理…').onClick(() => {
+						item.action(containerEl, -1);
+					}),
+				);
+			return;
+		}
 		if (!('control' in item) || !item.control) {
 			return;
 		}
@@ -241,6 +277,8 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 						await this.setControlValue(control.key, value);
 					}),
 			);
+		} else if (control.type === 'dropdown') {
+			this.renderDropdownControl(setting, control);
 		} else if (control.type === 'number') {
 			this.renderNumberControl(setting, control);
 		}
@@ -257,6 +295,27 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 			};
 			this.disabledUpdaters.push(applyDisabled);
 		}
+	}
+
+	/**
+	 * 渲染下拉控件（如“当前模型”接入口选择）。
+	 * @param setting 所在 Setting 行
+	 * @param control 下拉控件定义
+	 */
+	private renderDropdownControl(
+		setting: Setting,
+		control: { key: string; options: Record<string, string> },
+	): void {
+		setting.addDropdown((dropdown) => {
+			for (const [value, label] of Object.entries(control.options)) {
+				dropdown.addOption(value, label);
+			}
+			dropdown.setValue(String(this.readControlValue(control.key, '')));
+			dropdown.onChange(async (value) => {
+				await this.setControlValue(control.key, value);
+			});
+			return dropdown;
+		});
 	}
 
 	/**

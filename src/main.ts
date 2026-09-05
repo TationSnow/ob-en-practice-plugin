@@ -4,6 +4,7 @@ import {
 	EnPracticeSettings,
 	EnPracticeSettingTab,
 } from './settings';
+import { applyLegacyModelMigration } from './settings/models';
 import {
 	EnglishPracticeView,
 	VIEW_TYPE,
@@ -76,6 +77,11 @@ export default class EnPracticePlugin extends Plugin {
 			DEFAULT_SETTINGS,
 			(await this.loadData()) as Partial<EnPracticeSettings>,
 		);
+		// 旧版单模型配置迁移为模型档位（含剥离历史遗留无效键、修正激活标识）；
+		// 有变更时立即写回，保证迁移幂等且 data.json 与内存状态一致
+		if (applyLegacyModelMigration(this.settings)) {
+			await this.saveData(this.settings);
+		}
 	}
 
 	async saveSettings(): Promise<void> {

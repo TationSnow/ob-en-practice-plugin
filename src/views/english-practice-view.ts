@@ -1,11 +1,13 @@
 import { ItemView, setIcon, type SettingTab, type WorkspaceLeaf } from 'obsidian';
 import type EnPracticePlugin from '../main';
 import { isConfigValid } from '../types';
+import { getActiveModelProfile } from '../settings/models';
 import {
 	createIconButton,
 	createTabBar,
 	type TabBarControl,
 } from '../ui/controls';
+import { createModelQuickSelect } from '../ui/model-controls';
 import { createEmptyState } from '../ui/sections';
 import { renderGrammarAnalysis } from '../ui/grammar-tab';
 import { renderWritingPractice } from '../ui/writing-tab';
@@ -100,8 +102,16 @@ export class EnglishPracticeView extends ItemView {
 		setIcon(brandIcon, 'languages');
 		brand.createSpan('en-panel-title').setText('英语练习');
 		const statusBadge = header.createSpan('en-status-badge');
-		statusBadge.setText('已连接');
 		statusBadge.addClass('is-ready');
+		// 模型快速切换：切换仅保存设置并更新徽章，不整页重渲染、不清空已输入内容；
+		// 徽章带当前接入口名称，便于确认正在使用的模型
+		const activeProfile = getActiveModelProfile(this.plugin.settings);
+		statusBadge.setText(activeProfile ? `已连接 · ${activeProfile.name}` : '已连接');
+		createModelQuickSelect(header, this.plugin, {
+			onActiveChange: (profile) => {
+				statusBadge.setText(`已连接 · ${profile.name}`);
+			},
+		});
 		createIconButton(header, 'settings', '打开插件设置', () => {
 			this.openSettings();
 		});
