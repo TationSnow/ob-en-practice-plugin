@@ -6,6 +6,10 @@ import {
 	createTabBar,
 	type TabBarControl,
 } from '../ui/controls';
+import {
+	createModelQuickSelect,
+	formatModelBadgeText,
+} from '../ui/model-controls';
 import { createEmptyState } from '../ui/sections';
 import { renderGrammarAnalysis } from '../ui/grammar-tab';
 import { renderWritingPractice } from '../ui/writing-tab';
@@ -25,6 +29,10 @@ export class EnglishPracticeView extends ItemView {
 
 	private cleanupFns: Array<() => void> = [];
 	private tabBar: TabBarControl | null = null;
+	/** 连接徽章元素（渲染功能模块时创建，供激活档位变化时就地更新文案） */
+	private statusBadge: HTMLElement | null = null;
+	/** 当前是否渲染着功能模块（区别于未配置占位符），供配置状态同步判断 */
+	private showingModules = false;
 
 	constructor(leaf: WorkspaceLeaf, plugin: EnPracticePlugin) {
 		super(leaf);
@@ -63,10 +71,13 @@ export class EnglishPracticeView extends ItemView {
 
 		if (!isConfigValid(this.plugin.settings)) {
 			this.renderPlaceholder(contentEl);
+			this.showingModules = false;
+			this.statusBadge = null;
 			return;
 		}
 
 		this.renderModules(contentEl);
+		this.showingModules = true;
 	}
 
 	/** 执行所有模块清理函数，避免重渲染或关闭时泄漏订阅 */
@@ -88,6 +99,26 @@ export class EnglishPracticeView extends ItemView {
 		);
 	}
 
+	/**
+	 * 同步激活模型档位变化到面板（由插件 notifyActiveModelChanged 调用）。
+	 * - 配置从不完整变为完整（如新增首个档位）时整页重渲染，展开功能模块；
+	 * - 其余情况仅就地更新连接徽章文案，不重渲染、不清空已输入内容。
+	 */
+	syncActiveModel(): void {
+		if (!this.showingModules && isConfigValid(this.plugin.settings)) {
+			this.render();
+			return;
+		}
+		this.updateModelBadge();
+	}
+
+	/** 就地更新连接徽章文案为当前激活档位 */
+	private updateModelBadge(): void {
+		if (this.statusBadge) {
+			this.statusBadge.setText(formatModelBadgeText(this.plugin.settings));
+		}
+	}
+
 	/** 渲染功能模块 */
 	private renderModules(container: HTMLElement): void {
 		// 面板内共享事件总线，用于语法分析与翻译写作联动
@@ -100,8 +131,13 @@ export class EnglishPracticeView extends ItemView {
 		setIcon(brandIcon, 'languages');
 		brand.createSpan('en-panel-title').setText('英语练习');
 		const statusBadge = header.createSpan('en-status-badge');
-		statusBadge.setText('已连接');
 		statusBadge.addClass('is-ready');
+		// 徽章文案统一由 formatModelBadgeText 计算；
+		// 激活档位变化时通过 syncActiveModel 就地更新，不整页重渲染
+		statusBadge.setText(formatModelBadgeText(this.plugin.settings));
+		this.statusBadge = statusBadge;
+		// 模型快速切换：切换后由插件通知机制同步徽章，不清空已输入内容
+		createModelQuickSelect(header, this.plugin);
 		createIconButton(header, 'settings', '打开插件设置', () => {
 			this.openSettings();
 		});

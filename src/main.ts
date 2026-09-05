@@ -4,6 +4,7 @@ import {
 	EnPracticeSettings,
 	EnPracticeSettingTab,
 } from './settings';
+import { applyLegacyModelMigration } from './settings/models';
 import {
 	EnglishPracticeView,
 	VIEW_TYPE,
@@ -76,6 +77,11 @@ export default class EnPracticePlugin extends Plugin {
 			DEFAULT_SETTINGS,
 			(await this.loadData()) as Partial<EnPracticeSettings>,
 		);
+		// 旧版单模型配置迁移为模型档位（含剥离历史遗留无效键、修正激活标识）；
+		// 有变更时立即写回，保证迁移幂等且 data.json 与内存状态一致
+		if (applyLegacyModelMigration(this.settings)) {
+			await this.saveData(this.settings);
+		}
 	}
 
 	async saveSettings(): Promise<void> {
@@ -91,6 +97,22 @@ export default class EnPracticePlugin extends Plugin {
 			const view = leaf.view;
 			if (view instanceof EnglishPracticeView) {
 				view.render();
+			}
+		});
+	}
+
+	/**
+	 * 通知所有面板同步激活模型档位的变化
+	 * （来源：设置弹窗中的设为当前/新增/删除、面板快速切换）。
+	 * 刷新粒度由面板自行决定：仅更新连接徽章；
+	 * 配置从无到有时（如新增首个档位）才整页重渲染展开功能模块，
+	 * 避免切换模型清空用户已输入的内容。
+	 */
+	notifyActiveModelChanged(): void {
+		this.app.workspace.getLeavesOfType(VIEW_TYPE).forEach((leaf) => {
+			const view = leaf.view;
+			if (view instanceof EnglishPracticeView) {
+				view.syncActiveModel();
 			}
 		});
 	}

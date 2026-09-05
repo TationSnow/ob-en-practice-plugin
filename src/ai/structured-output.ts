@@ -4,6 +4,10 @@ import { StructuredOutputParser } from '@langchain/core/output_parsers';
 import type { ChatOpenAI } from '@langchain/openai';
 import type { z } from 'zod';
 import type { EnPracticeSettings } from '../settings';
+import {
+	resolveActiveModelSettings,
+	type StructuredOutputMode,
+} from '../settings/models';
 import { AiError } from '../types';
 import { repairJsonText } from '../utils/json-repair';
 import { createModel } from './index';
@@ -12,6 +16,18 @@ import {
 	createRequestId,
 	formatDebugDetail,
 } from './debug-log';
+import {
+	clearCachedStructuredMode,
+	getCachedStructuredMode,
+	getErrorMessage,
+	isResponseFormatUnsupportedError,
+	modelCapabilityCacheKey,
+	responseFormatPayload,
+	resolveModeLadder,
+	setCachedStructuredMode,
+	type ConcreteStructuredOutputMode,
+	type ResponseFormatPayload,
+} from './structured-mode';
 
 /** 解析失败详情最大长度，避免把整段原始输出塞进错误消息 */
 const PARSE_ERROR_DETAIL_LIMIT = 200;
@@ -32,7 +48,7 @@ export interface InvokeStructuredOptions<T extends z.ZodType> {
 	model: ChatOpenAI;
 	prompt: ChatPromptTemplate;
 	schema: T;
-	/** 任务标识，同时用作调试日志 feature 名称 */
+	/** 任务标识，同时用作调试日志 feature 名称与 json_schema 架构名称 */
 	outputName: string;
 	variables: Record<string, unknown>;
 	/** 流式输出回调，收到文本分片时触发 */
@@ -41,6 +57,17 @@ export interface InvokeStructuredOptions<T extends z.ZodType> {
 	debug?: boolean;
 	/** Zod 校验通过后的附加业务校验；返回问题列表，非空视为本次输出无效 */
 	additionalValidation?: (parsed: z.infer<T>) => string[];
+	/**
+	 * 结构化输出模式（来自激活模型档位）。
+	 * 缺省视为 auto：json_object → json_schema → 不发送 的降级阶梯。
+	 */
+	structuredOutputMode?: StructuredOutputMode;
+	/**
+	 * 能力缓存键（协议|地址|模型名）。
+	 * 提供时 auto 阶梯的探测结论会被缓存，后续请求直达已验证模式；
+	 * 缺省时不读写缓存（单元测试等场景）。
+	 */
+	capabilityCacheKey?: string;
 }
 
 /** 单个 AI 功能任务的配置，供 runStructuredTask 使用 */
@@ -68,19 +95,10 @@ export interface StructuredTaskConfig<T extends z.ZodType> {
  * @returns 截断后的错误文本
  */
 function parseErrorDetail(err: unknown): string {
-	const text = errorMessage(err);
+	const text = getErrorMessage(err);
 	return text.length > PARSE_ERROR_DETAIL_LIMIT
 		? `${text.slice(0, PARSE_ERROR_DETAIL_LIMIT)}...`
 		: text;
-}
-
-/**
- * 获取错误的可读文本。
- * @param err 未知错误
- * @returns 错误信息
- */
-function errorMessage(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
 }
 
 /**
@@ -162,23 +180,25 @@ async function collectStreamText(
 }
 
 /**
- * 以 JSON Mode 请求模型并收集输出文本。
- * 统一使用 response_format: json_object（OpenAI 兼容接口兼容面最广，且支持流式）；
+ * 以指定 response_format 请求模型并收集输出文本。
  * 传入 onToken 时走流式逐块回调，否则单次调用。
  * @param model ChatOpenAI 实例
  * @param messages 请求消息
  * @param onToken 流式文本回调；缺省时使用非流式调用
+ * @param responseFormat response_format 载荷；缺省（none 模式）时不发送该字段，
+ *   输出 JSON 约束完全依赖提示词 + 本地解析修复
  * @returns 模型输出的完整文本
  */
 async function collectModelText(
 	model: ChatOpenAI,
 	messages: BaseMessage[],
 	onToken?: (token: string) => void,
+	responseFormat?: ResponseFormatPayload,
 ): Promise<string> {
-	// 请求 JSON Mode：接口按 JSON 约束输出，减少 Markdown 代码块等杂讯
-	const jsonModel = model.withConfig({
-		response_format: { type: 'json_object' },
-	});
+	// 请求 JSON 约束输出：接口按 JSON 生成，减少 Markdown 代码块等杂讯
+	const jsonModel = responseFormat
+		? model.withConfig({ response_format: responseFormat })
+		: model;
 	if (onToken) {
 		const stream = await jsonModel.stream(messages);
 		return collectStreamText(stream, onToken);
@@ -191,6 +211,102 @@ async function collectModelText(
 		return extractReasoningContent(message);
 	}
 	return text;
+}
+
+/** 按结构化输出模式发起请求的参数 */
+interface StructuredModeRequestOptions {
+	schema: z.ZodType;
+	outputName: string;
+	messages: BaseMessage[];
+	onToken?: (token: string) => void;
+	structuredOutputMode: StructuredOutputMode;
+	capabilityCacheKey?: string;
+	debug?: boolean;
+	requestId: string;
+}
+
+/**
+ * 按结构化输出模式阶梯发起请求：一次请求，仅当后端明确拒绝
+ * response_format（400 + 关键词特征）时自动降级重试。
+ *
+ * 与历史约定的差异说明：本模块此前“不做方法降级”，失败即快速抛错；
+ * 现仅针对 response_format 能力不兼容保留一次降级路径——这类失败与
+ * 提示词、业务校验无关，属请求格式层的确定性拒绝，降级可确定性地恢复，
+ * 且降级过程全部写入调试日志，不产生歧义。其余失败仍快速抛出。
+ *
+ * @param model ChatOpenAI 实例
+ * @param options 请求参数
+ * @returns 模型输出的完整文本
+ */
+async function requestWithStructuredMode(
+	model: ChatOpenAI,
+	options: StructuredModeRequestOptions,
+): Promise<string> {
+	const {
+		schema,
+		outputName,
+		messages,
+		onToken,
+		structuredOutputMode,
+		capabilityCacheKey,
+		debug,
+		requestId,
+	} = options;
+	const attempt = (mode: ConcreteStructuredOutputMode): Promise<string> =>
+		collectModelText(
+			model,
+			messages,
+			onToken,
+			responseFormatPayload(mode, schema, outputName),
+		);
+
+	// 命中能力缓存：后端能力已验证，直接单次尝试；
+	// 若缓存模式失效（后端配置可能变化），清除缓存后重走完整阶梯
+	if (capabilityCacheKey) {
+		const cached = getCachedStructuredMode(capabilityCacheKey);
+		if (cached) {
+			try {
+				return await attempt(cached);
+			} catch (err) {
+				if (!isResponseFormatUnsupportedError(err)) {
+					throw err;
+				}
+				clearCachedStructuredMode(capabilityCacheKey);
+			}
+		}
+	}
+
+	const ladder = resolveModeLadder(structuredOutputMode);
+	for (let index = 0; index < ladder.length; index += 1) {
+		const mode = ladder[index];
+		if (!mode) {
+			continue;
+		}
+		try {
+			const text = await attempt(mode);
+			// 仅 auto 阶梯探索成功时写入缓存；手动模式是用户的显式选择，不代为缓存
+			if (capabilityCacheKey && structuredOutputMode === 'auto') {
+				setCachedStructuredMode(capabilityCacheKey, mode);
+			}
+			return text;
+		} catch (err) {
+			const nextMode = ladder[index + 1];
+			if (!nextMode || !isResponseFormatUnsupportedError(err)) {
+				throw err;
+			}
+			if (debug) {
+				addDebugEntry({
+					requestId,
+					feature: outputName,
+					phase: 'request',
+					message: `接口不支持 ${mode} 模式的 response_format`,
+					detail: `${getErrorMessage(err)}\n已自动降级为 ${nextMode} 模式重试`,
+				});
+			}
+		}
+	}
+	// 阶梯循环内必然 return 或 throw，此处仅为类型收窄兜底
+	throw new AiError('API_ERROR', '模型调用未能完成');
 }
 
 /** 解析结果：parsed 为解析输出，repaired 标记是否经过本地 JSON 修复 */
@@ -230,8 +346,9 @@ async function parseWithRepair<T>(
 
 /**
  * 统一执行结构化输出调用：一次请求，解析与校验失败即快速抛错。
- * 不做重试、不做方法降级、不做普通文本兜底——失败原因直接交给上层提示用户，
+ * 不做重试、不做普通文本兜底——失败原因直接交给上层提示用户，
  * 既避免多次请求拖慢响应，也防止兜底机制污染业务路由。
+ * 唯一的例外是 response_format 能力降级（见 requestWithStructuredMode）。
  * @param options 调用参数
  * @returns 校验通过的解析结果
  */
@@ -247,6 +364,8 @@ export async function invokeStructured<T extends z.ZodType>(
 		onToken,
 		debug,
 		additionalValidation,
+		structuredOutputMode,
+		capabilityCacheKey,
 	} = options;
 	const parser = StructuredOutputParser.fromZodSchema(schema);
 	const requestId = createRequestId(outputName);
@@ -265,7 +384,16 @@ export async function invokeStructured<T extends z.ZodType>(
 	let rawText: string;
 	try {
 		const promptValue = await prompt.invoke(variables);
-		rawText = await collectModelText(model, promptValue.messages, onToken);
+		rawText = await requestWithStructuredMode(model, {
+			schema,
+			outputName,
+			messages: promptValue.messages,
+			onToken,
+			structuredOutputMode: structuredOutputMode ?? 'auto',
+			capabilityCacheKey,
+			debug,
+			requestId,
+		});
 	} catch (err) {
 		if (debug) {
 			addDebugEntry({
@@ -273,10 +401,10 @@ export async function invokeStructured<T extends z.ZodType>(
 				feature: outputName,
 				phase: 'error',
 				message: '请求失败',
-				detail: errorMessage(err),
+				detail: getErrorMessage(err),
 			});
 		}
-		throw new AiError('API_ERROR', `模型调用失败：${errorMessage(err)}`);
+		throw new AiError('API_ERROR', `模型调用失败：${getErrorMessage(err)}`);
 	}
 
 	if (debug) {
@@ -313,7 +441,7 @@ export async function invokeStructured<T extends z.ZodType>(
 				feature: outputName,
 				phase: 'error',
 				message: '输出未通过 schema 校验',
-				detail: `${errorMessage(err)}\n原始输出：${rawText}`,
+				detail: `${getErrorMessage(err)}\n原始输出：${rawText}`,
 			});
 		}
 		// 面向用户的错误消息保留截断摘要，避免通知过长；完整内容见调试日志
@@ -356,8 +484,9 @@ export async function invokeStructured<T extends z.ZodType>(
 }
 
 /**
- * 执行一个标准 AI 结构化任务：创建模型、按设置接线流式/调试选项并解析输出。
- * 各 AI 功能节点共用此入口，收敛“创建模型 + 选项透传”的重复样板。
+ * 执行一个标准 AI 结构化任务：解析激活模型档位、创建模型、
+ * 按设置接线流式/调试选项并解析输出。
+ * 各 AI 功能节点共用此入口，收敛“档位解析 + 创建模型 + 选项透传”的重复样板。
  * @param settings 插件设置
  * @param options 调用方的流式/调试选项
  * @param config 任务配置
@@ -368,7 +497,9 @@ export async function runStructuredTask<T extends z.ZodType>(
 	options: StructuredOutputCallOptions | undefined,
 	config: StructuredTaskConfig<T>,
 ): Promise<z.infer<T>> {
-	const model = createModel(settings, config.maxTokens);
+	// 单一解析点：激活模型档位与全局默认合成为运行配置，AI 层不感知档位结构
+	const resolved = resolveActiveModelSettings(settings);
+	const model = createModel(resolved, config.maxTokens);
 	return invokeStructured({
 		model,
 		prompt: config.prompt,
@@ -376,8 +507,14 @@ export async function runStructuredTask<T extends z.ZodType>(
 		outputName: config.outputName,
 		variables: config.variables,
 		// 流式开关由插件设置统一控制，未开启时不接通回调
-		onToken: settings.streamingEnabled ? options?.onToken : undefined,
+		onToken: resolved.streamingEnabled ? options?.onToken : undefined,
 		debug: options?.debug,
 		additionalValidation: config.additionalValidation,
+		structuredOutputMode: resolved.structuredOutput,
+		capabilityCacheKey: modelCapabilityCacheKey(
+			resolved.protocol,
+			resolved.baseUrl,
+			resolved.modelName,
+		),
 	});
 }

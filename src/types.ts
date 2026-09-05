@@ -10,6 +10,7 @@ import type {
 	TranslationEvaluation,
 	TranslationQuestion,
 } from './ai/schemas';
+import { resolveActiveModelSettings, type GlobalModelDefaults } from './settings/models';
 
 export type {
 	ClauseInfo,
@@ -48,10 +49,8 @@ export class AiError extends Error {
 	}
 }
 
-/** 检查插件设置是否完整 */
-export function isConfigValid(settings: {
-	baseUrl: string;
-	modelName: string;
-}): boolean {
-	return settings.baseUrl.trim() !== '' && settings.modelName.trim() !== '';
+/** 检查插件设置是否完整（基于激活模型档位解析后的运行配置判定） */
+export function isConfigValid(settings: GlobalModelDefaults): boolean {
+	const resolved = resolveActiveModelSettings(settings);
+	return resolved.baseUrl !== '' && resolved.modelName !== '';
 }

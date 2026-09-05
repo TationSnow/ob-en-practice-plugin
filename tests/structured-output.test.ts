@@ -5,6 +5,11 @@ import type { ChatOpenAI } from '@langchain/openai';
 import { grammarImprovementSchema, grammarSchema, translationEvaluationSchema } from '../src/ai/schemas';
 import { invokeStructured, runStructuredTask } from '../src/ai/structured-output';
 import { clearDebugLog, getDebugLog } from '../src/ai/debug-log';
+import {
+	clearStructuredCapabilityCache,
+	getCachedStructuredMode,
+	setCachedStructuredMode,
+} from '../src/ai/structured-mode';
 import type { EnPracticeSettings } from '../src/settings';
 
 // runStructuredTask 内部会创建真实模型，测试中替换为桩实现
@@ -182,6 +187,7 @@ describe('Zod schema 校验', () => {
 describe('invokeStructured', () => {
 	beforeEach(() => {
 		clearDebugLog();
+		clearStructuredCapabilityCache();
 	});
 
 	it('流式路径逐块回调并返回校验通过的结果', async () => {
@@ -418,6 +424,8 @@ describe('runStructuredTask', () => {
 		overrides: Partial<EnPracticeSettings> = {},
 	): EnPracticeSettings {
 		return {
+			models: [],
+			activeModelId: '',
 			apiKey: 'test-key',
 			baseUrl: 'https://example.com/v1',
 			modelName: 'test-model',
@@ -430,6 +438,10 @@ describe('runStructuredTask', () => {
 			...overrides,
 		};
 	}
+
+	beforeEach(() => {
+		clearStructuredCapabilityCache();
+	});
 
 	it('创建模型并透传任务级 token 上限，流式回调接通', async () => {
 		const { model, stream } = createFakeModel({
@@ -452,7 +464,15 @@ describe('runStructuredTask', () => {
 		);
 
 		expect(result).toEqual(VALID_EVALUATION);
-		expect(createModelMock).toHaveBeenCalledWith(settings, 512);
+		// 模型工厂收到的是解析后的运行配置（激活档位 / 旧字段回退 → ResolvedModelSettings）
+		expect(createModelMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				baseUrl: 'https://example.com/v1',
+				modelName: 'test-model',
+				structuredOutput: 'auto',
+			}),
+			512,
+		);
 		expect(stream).toHaveBeenCalledTimes(1);
 	});
 
@@ -504,3 +524,215 @@ interface AiErrorLike {
 	code: string;
 	message: string;
 }
+
+/**
+ * 构造按 response_format 类型区分成败的假模型（降级阶梯测试用）。
+ * withConfig 收到的 response_format.type 为 undefined 表示 none 模式
+ * （不经过 withConfig，直接调用模型本身）。
+ */
+function createLadderFakeModel(
+	options: {
+		/** 直接失败的模式列表；undefined 表示 none 模式 */
+		failTypes?: Array<string | undefined>;
+		/** 失败时抛出的错误消息 */
+		failMessage?: string;
+		content?: string;
+	} = {},
+) {
+	const callTypes: Array<string | undefined> = [];
+	const failMessage =
+		options.failMessage ??
+		`400 "'response_format.type' must be 'json_schema' or 'text'"`;
+	const json = options.content ?? JSON.stringify(VALID_EVALUATION);
+	const callerFor = (type: string | undefined) => {
+		const invoke = vi.fn(async (_messages?: unknown) => {
+			callTypes.push(type);
+			if (options.failTypes?.some((item) => item === type)) {
+				throw new Error(failMessage);
+			}
+			return { content: json };
+		});
+		const stream = vi.fn(async (_messages?: unknown) => {
+			callTypes.push(type);
+			if (options.failTypes?.some((item) => item === type)) {
+				throw new Error(failMessage);
+			}
+			return createChunkStream([{ content: json }]);
+		});
+		return { invoke, stream };
+	};
+	const callers = new Map<
+		string | undefined,
+		ReturnType<typeof callerFor>
+	>();
+	const getCaller = (type: string | undefined) => {
+		let caller = callers.get(type);
+		if (!caller) {
+			caller = callerFor(type);
+			callers.set(type, caller);
+		}
+		return caller;
+	};
+	const model = {
+		invoke: (messages: unknown) => getCaller(undefined).invoke(messages),
+		stream: (messages: unknown) => getCaller(undefined).stream(messages),
+		withConfig: vi.fn(
+			(config: { response_format?: { type?: string } }) =>
+				getCaller(config?.response_format?.type),
+		),
+	} as unknown as ChatOpenAI;
+	return { model, callTypes };
+}
+
+describe('结构化输出模式降级（response_format 兼容）', () => {
+	beforeEach(() => {
+		clearDebugLog();
+		clearStructuredCapabilityCache();
+	});
+
+	it('auto 模式：json_object 被拒后自动降级 json_schema 重试并缓存能力', async () => {
+		const { model, callTypes } = createLadderFakeModel({
+			failTypes: ['json_object'],
+		});
+		const result = await invokeStructured({
+			...baseOptions(),
+			model,
+			schema: translationEvaluationSchema,
+			structuredOutputMode: 'auto',
+			capabilityCacheKey: 'ladder-1',
+		});
+
+		expect(result).toEqual(VALID_EVALUATION);
+		expect(callTypes).toEqual(['json_object', 'json_schema']);
+		expect(getCachedStructuredMode('ladder-1')).toBe('json_schema');
+	});
+
+	it('auto 模式：json_schema 也被拒时最终降级为不发送 response_format', async () => {
+		const { model, callTypes } = createLadderFakeModel({
+			failTypes: ['json_object', 'json_schema'],
+		});
+		const result = await invokeStructured({
+			...baseOptions(),
+			model,
+			schema: translationEvaluationSchema,
+			structuredOutputMode: 'auto',
+			capabilityCacheKey: 'ladder-2',
+		});
+
+		expect(result).toEqual(VALID_EVALUATION);
+		expect(callTypes).toEqual(['json_object', 'json_schema', undefined]);
+	});
+
+	it('auto 模式：降级重试同样适用于流式请求', async () => {
+		const { model, callTypes } = createLadderFakeModel({
+			failTypes: ['json_object'],
+		});
+		const tokens: string[] = [];
+		const result = await invokeStructured({
+			...baseOptions(),
+			model,
+			schema: translationEvaluationSchema,
+			structuredOutputMode: 'auto',
+			onToken: (token) => tokens.push(token),
+		});
+
+		expect(result).toEqual(VALID_EVALUATION);
+		expect(tokens.join('')).toBe(JSON.stringify(VALID_EVALUATION));
+		expect(callTypes).toEqual(['json_object', 'json_schema']);
+	});
+
+	it('命中能力缓存时直接单次请求，不重走阶梯', async () => {
+		setCachedStructuredMode('ladder-3', 'json_schema');
+		const { model, callTypes } = createLadderFakeModel({});
+		await invokeStructured({
+			...baseOptions(),
+			model,
+			schema: translationEvaluationSchema,
+			structuredOutputMode: 'auto',
+			capabilityCacheKey: 'ladder-3',
+		});
+
+		expect(callTypes).toEqual(['json_schema']);
+	});
+
+	it('缓存模式失效（后端配置变化）时清除缓存并重走完整阶梯', async () => {
+		setCachedStructuredMode('ladder-4', 'json_object');
+		const { model, callTypes } = createLadderFakeModel({
+			failTypes: ['json_object'],
+		});
+		await invokeStructured({
+			...baseOptions(),
+			model,
+			schema: translationEvaluationSchema,
+			structuredOutputMode: 'auto',
+			capabilityCacheKey: 'ladder-4',
+		});
+
+		// 缓存命中的 json_object 失败一次 + 重走阶梯（json_object 再失败、json_schema 成功）
+		expect(callTypes).toEqual(['json_object', 'json_object', 'json_schema']);
+		expect(getCachedStructuredMode('ladder-4')).toBe('json_schema');
+	});
+
+	it('非 response_format 的 400（如上下文超长）不触发降级，快速抛出', async () => {
+		const { model, callTypes } = createLadderFakeModel({
+			failTypes: ['json_object'],
+			failMessage: "400 'context length exceeded'",
+		});
+		await expect(
+			invokeStructured({
+				...baseOptions(),
+				model,
+				schema: translationEvaluationSchema,
+				structuredOutputMode: 'auto',
+				capabilityCacheKey: 'ladder-5',
+			}),
+		).rejects.toMatchObject({ code: 'API_ERROR' });
+		expect(callTypes).toEqual(['json_object']);
+	});
+
+	it('手动模式只尝试指定模式，失败即上抛且不写缓存', async () => {
+		const { model, callTypes } = createLadderFakeModel({
+			failTypes: ['json_schema'],
+		});
+		await expect(
+			invokeStructured({
+				...baseOptions(),
+				model,
+				schema: translationEvaluationSchema,
+				structuredOutputMode: 'json_schema',
+				capabilityCacheKey: 'ladder-6',
+			}),
+		).rejects.toMatchObject({ code: 'API_ERROR' });
+		expect(callTypes).toEqual(['json_schema']);
+		expect(getCachedStructuredMode('ladder-6')).toBeUndefined();
+	});
+
+	it('none 模式完全不发送 response_format', async () => {
+		const { model, callTypes } = createLadderFakeModel({});
+		const result = await invokeStructured({
+			...baseOptions(),
+			model,
+			schema: translationEvaluationSchema,
+			structuredOutputMode: 'none',
+			capabilityCacheKey: 'ladder-7',
+		});
+
+		expect(result).toEqual(VALID_EVALUATION);
+		// undefined 类型表示请求未经 withConfig（未携带 response_format）
+		expect(callTypes).toEqual([undefined]);
+	});
+
+	it('降级过程写入调试日志，便于排查', async () => {
+		const { model } = createLadderFakeModel({ failTypes: ['json_object'] });
+		await invokeStructured({
+			...baseOptions(),
+			model,
+			schema: translationEvaluationSchema,
+			structuredOutputMode: 'auto',
+			debug: true,
+		});
+
+		const messages = getDebugLog().map((entry) => entry.message);
+		expect(messages).toContain('接口不支持 json_object 模式的 response_format');
+	});
+});

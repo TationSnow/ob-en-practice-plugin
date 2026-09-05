@@ -44,8 +44,20 @@ export default defineConfig(
 		},
 	},
 	{
+		// 测试运行于 Node 环境（vitest），不存在 window/activeWindow
+		files: ['tests/**/*.ts'],
+		languageOptions: {
+			globals: {
+				...globals.node,
+			},
+		},
 		rules: {
-			// URL、API Key 占位符与模型名属于大小写敏感内容，跳过 sentence-case 误报
+			'obsidianmd/prefer-window-timers': 'off',
+		},
+	},
+	{
+		rules: {
+			// URL、API Key 占位符、模型名与协议名属于大小写敏感内容，跳过 sentence-case 误报
 			'obsidianmd/ui/sentence-case': [
 				'warn',
 				{
@@ -54,6 +66,13 @@ export default defineConfig(
 						'https?://\\S+',
 						'gpt-4o-mini',
 						'Clash\\s+Verge',
+						'LM\\s+Studio',
+						'Ollama',
+						'DeepSeek',
+						'openai-compatible',
+						'json_schema',
+						'json_object',
+						'\\bauto\\b',
 					],
 				},
 			],
