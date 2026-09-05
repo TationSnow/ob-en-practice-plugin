@@ -1,15 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { SystemMessage } from '@langchain/core/messages';
 import type { ChatOpenAI } from '@langchain/openai';
-import {
-	grammarSchema,
-	translationEvaluationSchema,
-} from '../src/ai/schemas';
-import {
-	invokeStructured,
-	resolveOutputMethods,
-} from '../src/ai/structured-output';
+import { grammarImprovementSchema, grammarSchema, translationEvaluationSchema } from '../src/ai/schemas';
+import { invokeStructured, runStructuredTask } from '../src/ai/structured-output';
+import { clearDebugLog, getDebugLog } from '../src/ai/debug-log';
+import type { EnPracticeSettings } from '../src/settings';
+
+// runStructuredTask 内部会创建真实模型，测试中替换为桩实现
+const { createModelMock } = vi.hoisted(() => ({ createModelMock: vi.fn() }));
+vi.mock('../src/ai/index', () => ({ createModel: createModelMock }));
 
 const TEST_PROMPT = ChatPromptTemplate.fromMessages([
 	new SystemMessage('返回一个合法的 JSON 对象。'),
@@ -48,40 +48,61 @@ const VALID_GRAMMAR = {
 	mood: '陈述语气',
 	sentenceType: '简单句',
 	structureSummary: '主语 + 谓语 + 状语',
+	translation: '那只猫坐在垫子上。',
 };
 
-/** 构造用于测试的假 ChatOpenAI */
-function createFakeModel(
-	overrides: Partial<
-		Pick<
-			ChatOpenAI,
-			| 'model'
-			| 'profile'
-			| 'withStructuredOutput'
-			| 'invoke'
-			| 'withConfig'
-			| 'stream'
-		>
-	>,
-): ChatOpenAI {
-	return {
-		model: 'deepseek-v4-flash',
-		profile: {},
-		withStructuredOutput: vi.fn(),
-		invoke: vi.fn(),
-		withConfig: vi.fn(),
-		stream: vi.fn(),
-		...overrides,
-	} as unknown as ChatOpenAI;
+/** 流式分块结构（与 LangChain 消息分块形状一致的最小子集） */
+interface FakeChunk {
+	content: unknown;
+	additional_kwargs?: Record<string, unknown>;
 }
 
 /** 构造一个按块输出的假流 */
 async function* createChunkStream(
-	chunks: { content: string; additional_kwargs?: Record<string, unknown> }[],
-): AsyncGenerator<{ content: string; additional_kwargs?: Record<string, unknown> }> {
+	chunks: FakeChunk[],
+): AsyncGenerator<FakeChunk> {
 	for (const chunk of chunks) {
 		yield chunk;
 	}
+}
+
+/** 假模型句柄：model 供调用，stream/invoke 供断言 */
+interface FakeModelHandles {
+	model: ChatOpenAI;
+	stream: ReturnType<typeof vi.fn>;
+	invoke: ReturnType<typeof vi.fn>;
+}
+
+/**
+ * 构造带桩的假 ChatOpenAI。
+ * withConfig 返回统一调用器，流式与非流式都经由它，可分别断言调用情况。
+ */
+function createFakeModel(
+	options: {
+		chunks?: FakeChunk[];
+		message?: { content: unknown; additional_kwargs?: Record<string, unknown> };
+	} = {},
+): FakeModelHandles {
+	const stream = vi.fn(() =>
+		Promise.resolve(createChunkStream(options.chunks ?? [])),
+	);
+	const invoke = vi.fn(() =>
+		Promise.resolve(options.message ?? { content: '' }),
+	);
+	const model = {
+		model: 'test-model',
+		withConfig: vi.fn(() => ({ stream, invoke })),
+	} as unknown as ChatOpenAI;
+	return { model, stream, invoke };
+}
+
+/** invokeStructured 的公共测试参数 */
+function baseOptions() {
+	return {
+		prompt: TEST_PROMPT,
+		outputName: 'translationEvaluation',
+		variables: { input: 'test' },
+	};
 }
 
 describe('Zod schema 校验', () => {
@@ -106,14 +127,35 @@ describe('Zod schema 校验', () => {
 		).toThrow();
 	});
 
-	it('合法语法结果应通过，非法成分类型应被拒绝', () => {
+	it('合法语法结果应通过校验', () => {
 		expect(grammarSchema.parse(VALID_GRAMMAR)).toEqual(VALID_GRAMMAR);
-		expect(() =>
-			grammarSchema.parse({
-				...VALID_GRAMMAR,
-				components: [{ text: 'x', type: 'invalid' }],
-			}),
-		).toThrow();
+	});
+
+	it('未知成分类型应归入 other 而不是整体拒绝（回归：conjunction）', () => {
+		// 模型可能发明封闭列表外的类型（如把引导词标注为 conjunction），
+		// 整份输出因单个字段作废得不偿失，统一归入 other
+		const parsed = grammarSchema.parse({
+			...VALID_GRAMMAR,
+			components: [{ text: 'that', type: 'conjunction' }],
+		});
+		expect(parsed.components[0]?.type).toBe('other');
+	});
+
+	it('成分类型的大小写与空白偏差应归一化', () => {
+		const parsed = grammarSchema.parse({
+			...VALID_GRAMMAR,
+			components: [{ text: 'The cat', type: ' Subject ' }],
+		});
+		expect(parsed.components[0]?.type).toBe('subject');
+	});
+
+	it('未知字段应被剥离而不是整体拒绝', () => {
+		// 弱模型偶尔会附加额外字段；非 strict 模式下静默剥离，解析更宽容
+		const parsed = grammarSchema.parse({
+			...VALID_GRAMMAR,
+			extraField: '模型附带的说明',
+		});
+		expect(parsed).toEqual(VALID_GRAMMAR);
 	});
 
 	it('包含嵌套 children 的语法结果应通过校验', () => {
@@ -137,364 +179,328 @@ describe('Zod schema 校验', () => {
 	});
 });
 
-describe('resolveOutputMethods', () => {
-	it('DeepSeek 应优先 jsonMode', () => {
-		const model = createFakeModel({ model: 'deepseek-v4-flash' });
-		expect(resolveOutputMethods(model)).toEqual([
-			'jsonMode',
-			'functionCalling',
-		]);
-	});
-
-	it('DeepSeek 开启思考模式时跳过 functionCalling', () => {
-		const model = createFakeModel({ model: 'deepseek-v4-flash' });
-		expect(resolveOutputMethods(model, true)).toEqual(['jsonMode']);
-	});
-
-	it('OpenAI 结构化输出模型应优先 jsonSchema', () => {
-		const model = createFakeModel({ model: 'gpt-4o' });
-		expect(resolveOutputMethods(model)).toEqual([
-			'jsonSchema',
-			'functionCalling',
-			'jsonMode',
-		]);
-	});
-
-	it('未知模型应默认 jsonMode', () => {
-		const model = createFakeModel({ model: 'qwen-3' });
-		expect(resolveOutputMethods(model)).toEqual([
-			'jsonMode',
-			'functionCalling',
-		]);
-	});
-});
-
 describe('invokeStructured', () => {
-	it('jsonMode 开启流式回调时逐块输出并完成校验', async () => {
+	beforeEach(() => {
+		clearDebugLog();
+	});
+
+	it('流式路径逐块回调并返回校验通过的结果', async () => {
 		const json = JSON.stringify(VALID_EVALUATION);
-		const stream = createChunkStream([
-			{ content: json.slice(0, 20) },
-			{ content: json.slice(20) },
-		]);
-		const withConfig = vi.fn().mockReturnValue({
-			stream: vi.fn().mockResolvedValue(stream),
-		});
-		const model = createFakeModel({
-			withConfig,
+		const { model, stream } = createFakeModel({
+			chunks: [{ content: json.slice(0, 20) }, { content: json.slice(20) }],
 		});
 		const tokens: string[] = [];
 
 		const result = await invokeStructured({
+			...baseOptions(),
 			model,
-			prompt: TEST_PROMPT,
 			schema: translationEvaluationSchema,
-			outputName: 'translationEvaluation',
-			variables: { input: 'test' },
-			maxRetries: 0,
 			onToken: (token) => tokens.push(token),
 		});
 
 		expect(result).toEqual(VALID_EVALUATION);
-		expect(withConfig).toHaveBeenCalledWith(
-			expect.objectContaining({
-				response_format: { type: 'json_object' },
-			}),
-		);
-		expect(tokens.join('')).toContain('"score"');
+		expect(stream).toHaveBeenCalledTimes(1);
+		expect(tokens.join('')).toBe(json);
 	});
 
-	it('content 为空时回退读取 reasoning_content 并完成校验', async () => {
+	it('非流式路径单次调用并返回校验通过的结果', async () => {
+		const { model, invoke } = createFakeModel({
+			message: { content: JSON.stringify(VALID_EVALUATION) },
+		});
+
+		const result = await invokeStructured({
+			...baseOptions(),
+			model,
+			schema: translationEvaluationSchema,
+		});
+
+		expect(result).toEqual(VALID_EVALUATION);
+		expect(invoke).toHaveBeenCalledTimes(1);
+	});
+
+	it('流式 content 为空时回退读取 reasoning_content', async () => {
 		const json = JSON.stringify(VALID_EVALUATION);
-		const raw = {
-			choices: [{ delta: { reasoning_content: json } }],
-		};
-		const stream = createChunkStream([
-			{ content: '', additional_kwargs: { __raw_response: raw } },
-		]);
-		const withConfig = vi.fn().mockReturnValue({
-			stream: vi.fn().mockResolvedValue(stream),
+		const raw = { choices: [{ delta: { reasoning_content: json } }] };
+		const { model } = createFakeModel({
+			chunks: [{ content: '', additional_kwargs: { __raw_response: raw } }],
 		});
-		const model = createFakeModel({ withConfig });
 
 		const result = await invokeStructured({
+			...baseOptions(),
 			model,
-			prompt: TEST_PROMPT,
 			schema: translationEvaluationSchema,
-			outputName: 'translationEvaluation',
-			variables: { input: 'test' },
-			maxRetries: 0,
 			onToken: vi.fn(),
 		});
 
 		expect(result).toEqual(VALID_EVALUATION);
 	});
 
-	it('思考模式下 DeepSeek 只使用 jsonMode', async () => {
-		const usedMethods: string[] = [];
-		const withStructuredOutput = vi.fn().mockImplementation(
-			(_schema: unknown, config: { method?: string }) => {
-				usedMethods.push(config.method ?? '');
-				return {
-					invoke: vi.fn().mockResolvedValue({
-						raw: {},
-						parsed: VALID_GRAMMAR,
-					}),
-				};
-			},
-		);
-		const model = createFakeModel({ withStructuredOutput });
-
-		const result = await invokeStructured({
-			model,
-			prompt: TEST_PROMPT,
-			schema: grammarSchema,
-			outputName: 'grammarResult',
-			variables: { input: 'test' },
-			maxRetries: 0,
-			thinkingEnabled: true,
+	it('非流式 content 为空时回退读取 reasoning_content', async () => {
+		const json = JSON.stringify(VALID_EVALUATION);
+		const raw = { choices: [{ message: { reasoning_content: json } }] };
+		const { model, invoke } = createFakeModel({
+			message: { content: '', additional_kwargs: { __raw_response: raw } },
 		});
 
-		expect(result).toEqual(VALID_GRAMMAR);
-		expect(usedMethods).toEqual(['jsonMode']);
-	});
-
-	it('解析失败时按重试次数重试同一方法', async () => {
-		const withStructuredOutput = vi.fn().mockReturnValue({
-			invoke: vi
-				.fn()
-				.mockResolvedValueOnce({ raw: {}, parsed: null })
-				.mockResolvedValue({ raw: {}, parsed: VALID_EVALUATION }),
-		});
-		const model = createFakeModel({ withStructuredOutput });
-
 		const result = await invokeStructured({
+			...baseOptions(),
 			model,
-			prompt: TEST_PROMPT,
 			schema: translationEvaluationSchema,
-			outputName: 'translationEvaluation',
-			variables: { input: 'test' },
-			maxRetries: 1,
 		});
 
 		expect(result).toEqual(VALID_EVALUATION);
-		expect(withStructuredOutput).toHaveBeenCalledTimes(2);
-		expect(withStructuredOutput).toHaveBeenLastCalledWith(
-			expect.anything(),
-			expect.objectContaining({ method: 'jsonMode', includeRaw: true }),
-		);
+		expect(invoke).toHaveBeenCalledTimes(1);
 	});
 
-	it('附加业务校验失败时按重试次数重试，通过后返回', async () => {
-		const withStructuredOutput = vi.fn().mockReturnValue({
-			invoke: vi
-				.fn()
-				.mockResolvedValueOnce({
-					raw: {},
-					parsed: { ...VALID_EVALUATION, score: 50 },
-				})
-				.mockResolvedValue({ raw: {}, parsed: VALID_EVALUATION }),
+	it('JSON 解析失败立即抛出 PARSE_ERROR，不再重试', async () => {
+		const { model, stream } = createFakeModel({
+			chunks: [{ content: '{ "score": "90" }' }],
 		});
-		const model = createFakeModel({ withStructuredOutput });
-
-		const result = await invokeStructured({
-			model,
-			prompt: TEST_PROMPT,
-			schema: translationEvaluationSchema,
-			outputName: 'translationEvaluation',
-			variables: { input: 'test' },
-			maxRetries: 1,
-			additionalValidation: (parsed) =>
-				parsed.score < 80 ? ['分数低于 80'] : [],
-		});
-
-		expect(result).toEqual(VALID_EVALUATION);
-		expect(withStructuredOutput).toHaveBeenCalledTimes(2);
-	});
-
-	it('附加校验失败后，重试消息包含具体校验问题', async () => {
-		const invoke = vi
-			.fn()
-			.mockResolvedValueOnce({
-				raw: {},
-				parsed: { ...VALID_EVALUATION, score: 50 },
-			})
-			.mockResolvedValue({ raw: {}, parsed: VALID_EVALUATION });
-		const withStructuredOutput = vi.fn().mockReturnValue({ invoke });
-		const model = createFakeModel({ withStructuredOutput });
-
-		const result = await invokeStructured({
-			model,
-			prompt: TEST_PROMPT,
-			schema: translationEvaluationSchema,
-			outputName: 'translationEvaluation',
-			variables: { input: 'test' },
-			maxRetries: 1,
-			additionalValidation: (parsed) =>
-				parsed.score < 80 ? ['分数低于 80'] : [],
-			validationRetryHint: (issues) => `修正：${issues.join('；')}`,
-		});
-
-		expect(result).toEqual(VALID_EVALUATION);
-		const secondCallMessages = invoke.mock.calls[1]?.[0] as Array<{
-			content: unknown;
-		}>;
-		const lastMessage =
-			secondCallMessages?.[secondCallMessages.length - 1];
-		expect(String(lastMessage?.content)).toContain('修正：分数低于 80');
-	});
-
-	it('流式 jsonMode 解析失败后，重试消息携带具体校验错误', async () => {
-		const badJson = '{ "score": "90" }'; // score 应为 number，Zod 校验失败
-		const goodJson = JSON.stringify(VALID_EVALUATION);
-		const stream1 = createChunkStream([{ content: badJson }]);
-		const stream2 = createChunkStream([{ content: goodJson }]);
-		const stream = vi
-			.fn()
-			.mockResolvedValueOnce(stream1)
-			.mockResolvedValueOnce(stream2);
-		const withConfig = vi.fn().mockReturnValue({ stream });
-		const model = createFakeModel({ withConfig });
-
-		const result = await invokeStructured({
-			model,
-			prompt: TEST_PROMPT,
-			schema: translationEvaluationSchema,
-			outputName: 'translationEvaluation',
-			variables: { input: 'test' },
-			maxRetries: 1,
-			onToken: vi.fn(),
-		});
-
-		expect(result).toEqual(VALID_EVALUATION);
-		// 第二次请求的消息末尾应包含上次失败的具体错误
-		const secondMessages = stream.mock.calls[1]?.[0] as Array<{
-			content: unknown;
-		}>;
-		const lastMessage =
-			secondMessages?.[secondMessages.length - 1];
-		expect(String(lastMessage?.content)).toContain('具体错误');
-		expect(String(lastMessage?.content)).toContain('上次输出未通过 JSON 格式或字段校验');
-	});
-
-	it('兜底请求应携带最近一次失败原因', async () => {
-		const withStructuredOutput = vi.fn().mockReturnValue({
-			invoke: vi.fn().mockResolvedValue({ raw: {}, parsed: null }),
-		});
-		const invoke = vi
-			.fn()
-			.mockResolvedValue({ content: JSON.stringify(VALID_EVALUATION) });
-		const model = createFakeModel({ withStructuredOutput, invoke });
-
-		const result = await invokeStructured({
-			model,
-			prompt: TEST_PROMPT,
-			schema: translationEvaluationSchema,
-			outputName: 'translationEvaluation',
-			variables: { input: 'test' },
-			maxRetries: 0,
-		});
-
-		expect(result).toEqual(VALID_EVALUATION);
-		// 兜底请求的消息末尾应包含失败原因提示，避免模型盲目重答
-		const fallbackMessages = invoke.mock.calls[0]?.[0] as Array<{
-			content: unknown;
-		}>;
-		const lastMessage =
-			fallbackMessages?.[fallbackMessages.length - 1];
-		expect(String(lastMessage?.content)).toContain('具体错误');
-	});
-
-	it('API 不支持当前方法时自动切换到下一方法', async () => {
-		const withStructuredOutput = vi.fn().mockImplementation(
-			(_schema: unknown, config: { method?: string }) => {
-				if (config.method === 'jsonMode') {
-					return {
-						invoke: vi.fn().mockRejectedValue(new Error('unsupported')),
-					};
-				}
-				return {
-					invoke: vi.fn().mockResolvedValue({
-						raw: {},
-						parsed: VALID_EVALUATION,
-					}),
-				};
-			},
-		);
-		const model = createFakeModel({ withStructuredOutput });
-
-		const result = await invokeStructured({
-			model,
-			prompt: TEST_PROMPT,
-			schema: translationEvaluationSchema,
-			outputName: 'translationEvaluation',
-			variables: { input: 'test' },
-			maxRetries: 0,
-		});
-
-		expect(result).toEqual(VALID_EVALUATION);
-		expect(withStructuredOutput).toHaveBeenLastCalledWith(
-			expect.anything(),
-			expect.objectContaining({ method: 'functionCalling' }),
-		);
-	});
-
-	it('原生方法全部失败时回退到普通文本并完成 Zod 校验', async () => {
-		const withStructuredOutput = vi.fn().mockReturnValue({
-			invoke: vi.fn().mockResolvedValue({ raw: {}, parsed: null }),
-		});
-		const invoke = vi
-			.fn()
-			.mockResolvedValue({ content: JSON.stringify(VALID_EVALUATION) });
-		const model = createFakeModel({ withStructuredOutput, invoke });
-
-		const result = await invokeStructured({
-			model,
-			prompt: TEST_PROMPT,
-			schema: translationEvaluationSchema,
-			outputName: 'translationEvaluation',
-			variables: { input: 'test' },
-			maxRetries: 0,
-		});
-
-		expect(result).toEqual(VALID_EVALUATION);
-		expect(invoke).toHaveBeenCalled();
-	});
-
-	it('兜底解析仍失败时抛出 PARSE_ERROR', async () => {
-		const withStructuredOutput = vi.fn().mockReturnValue({
-			invoke: vi.fn().mockResolvedValue({ raw: {}, parsed: null }),
-		});
-		const invoke = vi.fn().mockResolvedValue({ content: '不是 JSON' });
-		const model = createFakeModel({ withStructuredOutput, invoke });
 
 		await expect(
 			invokeStructured({
+				...baseOptions(),
 				model,
-				prompt: TEST_PROMPT,
 				schema: translationEvaluationSchema,
-				outputName: 'translationEvaluation',
-				variables: { input: 'test' },
-				maxRetries: 0,
+				onToken: vi.fn(),
 			}),
 		).rejects.toMatchObject({ code: 'PARSE_ERROR' });
+		// 快速失败：只发生一次请求
+		expect(stream).toHaveBeenCalledTimes(1);
 	});
 
-	it('所有原生方法返回解析失败且兜底调用失败时抛出 API_ERROR', async () => {
-		const withStructuredOutput = vi.fn().mockReturnValue({
-			invoke: vi.fn().mockResolvedValue({ raw: {}, parsed: null }),
+	it('schema 校验失败的调试日志记录完整错误，不截断', async () => {
+		// 构造超出旧 200 字符截断上限的失败输出
+		const raw = `{ "score": "90", "pad": "${'x'.repeat(600)}" }`;
+		const { model } = createFakeModel({ message: { content: raw } });
+
+		await invokeStructured({
+			...baseOptions(),
+			model,
+			schema: translationEvaluationSchema,
+			debug: true,
+		}).catch(() => {});
+
+		const entry = getDebugLog().find(
+			(e) => e.message === '输出未通过 schema 校验',
+		);
+		expect(entry).toBeDefined();
+		// 调试日志必须包含完整原始输出，保证面板展示与复制日志可用于排查
+		expect(entry?.detail).toContain('x'.repeat(600));
+		expect(entry?.detail?.endsWith('...')).toBe(false);
+	});
+
+	it('字符串值内未转义引号时本地修复解析成功（回归线上日志）', async () => {
+		// 取自真实报错日志：usage 值内的英文双引号未转义，导致 JSON 解析失败
+		const raw = `{
+  "sentence": "The parents and grandparents of your students are resources and assets for their children",
+  "issues": [
+    {
+      "text": "for their children",
+      "type": "指代不明",
+      "explanation": "their children 指代不明确，可能指学生们的孩子。",
+      "suggestion": "改为 for them"
+    }
+  ],
+  "patterns": [
+    {
+      "pattern": "resources and assets",
+      "usage": "表示"资源和资产"，用于描述有价值的人或物。",
+      "example": "Our employees are our greatest resources and assets."
+    }
+  ],
+  "suggestions": [
+    "修正指代问题，使句子表达更加清晰准确。"
+  ],
+  "improvedSentence": "The parents and grandparents of your students are resources and assets for them.",
+  "translation": "你学生的父母和祖父母是他们的资源和资产。"
+}`;
+		const { model } = createFakeModel({ message: { content: raw } });
+
+		const result = await invokeStructured({
+			...baseOptions(),
+			model,
+			schema: grammarImprovementSchema,
+			debug: true,
 		});
-		const invoke = vi.fn().mockRejectedValue(new Error('network error'));
-		const model = createFakeModel({ withStructuredOutput, invoke });
+
+		// 修复后字段值原样保留
+		expect(result.patterns[0]?.usage).toBe(
+			'表示"资源和资产"，用于描述有价值的人或物。',
+		);
+		// 本地修复不应产生额外模型请求
+		const repairEntries = getDebugLog().filter(
+			(e) => e.message === 'JSON 语法修复后解析成功',
+		);
+		expect(repairEntries).toHaveLength(1);
+	});
+
+	it('附加校验失败立即抛出 PARSE_ERROR，消息包含问题与原始输出', async () => {
+		const { model } = createFakeModel({
+			message: { content: JSON.stringify(VALID_EVALUATION) },
+		});
+
+		const err = (await invokeStructured({
+			...baseOptions(),
+			model,
+			schema: translationEvaluationSchema,
+			additionalValidation: () => ['分数低于 80'],
+		}).catch((error: unknown) => error)) as AiErrorLike;
+
+		expect(err.code).toBe('PARSE_ERROR');
+		expect(err.message).toContain('分数低于 80');
+		expect(err.message).toContain('"score"');
+	});
+
+	it('附加校验通过时返回解析结果', async () => {
+		const { model } = createFakeModel({
+			message: { content: JSON.stringify(VALID_EVALUATION) },
+		});
+
+		const result = await invokeStructured({
+			...baseOptions(),
+			model,
+			schema: translationEvaluationSchema,
+			additionalValidation: () => [],
+		});
+
+		expect(result).toEqual(VALID_EVALUATION);
+	});
+
+	it('流式模型调用抛错时抛出 API_ERROR', async () => {
+		const { model, stream } = createFakeModel();
+		stream.mockRejectedValue(new Error('network error'));
 
 		await expect(
 			invokeStructured({
+				...baseOptions(),
 				model,
-				prompt: TEST_PROMPT,
 				schema: translationEvaluationSchema,
-				outputName: 'translationEvaluation',
-				variables: { input: 'test' },
-				maxRetries: 0,
+				onToken: vi.fn(),
 			}),
 		).rejects.toMatchObject({ code: 'API_ERROR' });
 	});
+
+	it('非流式模型调用抛错时抛出 API_ERROR', async () => {
+		const { model, invoke } = createFakeModel();
+		invoke.mockRejectedValue(new Error('network error'));
+
+		await expect(
+			invokeStructured({
+				...baseOptions(),
+				model,
+				schema: translationEvaluationSchema,
+			}),
+		).rejects.toMatchObject({ code: 'API_ERROR' });
+	});
+
+	it('debug 开启时写入请求与成功日志', async () => {
+		const { model } = createFakeModel({
+			message: { content: JSON.stringify(VALID_EVALUATION) },
+		});
+
+		await invokeStructured({
+			...baseOptions(),
+			model,
+			schema: translationEvaluationSchema,
+			debug: true,
+		});
+
+		const messages = getDebugLog().map((entry) => entry.message);
+		expect(messages).toContain('开始请求');
+		expect(messages).toContain('请求成功');
+	});
 });
+
+describe('runStructuredTask', () => {
+	/** 构造最小完整设置 */
+	function createSettings(
+		overrides: Partial<EnPracticeSettings> = {},
+	): EnPracticeSettings {
+		return {
+			apiKey: 'test-key',
+			baseUrl: 'https://example.com/v1',
+			modelName: 'test-model',
+			debugMode: false,
+			streamingEnabled: true,
+			maxTokens: 4096,
+			proxyEnabled: false,
+			proxyUrl: '',
+			writingThemes: [],
+			...overrides,
+		};
+	}
+
+	it('创建模型并透传任务级 token 上限，流式回调接通', async () => {
+		const { model, stream } = createFakeModel({
+			chunks: [{ content: JSON.stringify(VALID_EVALUATION) }],
+		});
+		createModelMock.mockReset().mockReturnValue(model);
+		const settings = createSettings();
+		const onToken = vi.fn();
+
+		const result = await runStructuredTask(
+			settings,
+			{ onToken },
+			{
+				outputName: 'grammarRouter',
+				prompt: TEST_PROMPT,
+				schema: translationEvaluationSchema,
+				variables: { input: 'test' },
+				maxTokens: 512,
+			},
+		);
+
+		expect(result).toEqual(VALID_EVALUATION);
+		expect(createModelMock).toHaveBeenCalledWith(settings, 512);
+		expect(stream).toHaveBeenCalledTimes(1);
+	});
+
+	it('关闭流式输出设置时不接通 onToken，走非流式调用', async () => {
+		const { model, stream, invoke } = createFakeModel({
+			message: { content: JSON.stringify(VALID_EVALUATION) },
+		});
+		createModelMock.mockReset().mockReturnValue(model);
+
+		await runStructuredTask(
+			createSettings({ streamingEnabled: false }),
+			{ onToken: vi.fn() },
+			{
+				outputName: 'grammarRouter',
+				prompt: TEST_PROMPT,
+				schema: translationEvaluationSchema,
+				variables: { input: 'test' },
+			},
+		);
+
+		expect(stream).not.toHaveBeenCalled();
+		expect(invoke).toHaveBeenCalledTimes(1);
+	});
+
+	it('debug 选项透传到日志', async () => {
+		const { model } = createFakeModel({
+			message: { content: JSON.stringify(VALID_EVALUATION) },
+		});
+		createModelMock.mockReset().mockReturnValue(model);
+
+		await runStructuredTask(
+			createSettings(),
+			{ debug: true },
+			{
+				outputName: 'grammarResult',
+				prompt: TEST_PROMPT,
+				schema: translationEvaluationSchema,
+				variables: { input: 'test' },
+			},
+		);
+
+		const features = getDebugLog().map((entry) => entry.feature);
+		expect(features).toContain('grammarResult');
+	});
+});
+
+/** 测试中使用的错误形状 */
+interface AiErrorLike {
+	code: string;
+	message: string;
+}

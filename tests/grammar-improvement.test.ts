@@ -20,6 +20,7 @@ const VALID_RESULT = {
 	],
 	suggestions: ['修正固定搭配后句子即可恢复正确。'],
 	improvedSentence: 'I am interested in reading and writing.',
+	translation: '我在阅读和写作之间感到有趣。',
 };
 
 describe('grammarImprovementSchema', () => {
@@ -37,6 +38,12 @@ describe('grammarImprovementSchema', () => {
 			VALID_RESULT;
 		expect(() =>
 			grammarImprovementSchema.parse(missingImproved),
+		).toThrow();
+
+		const { translation: _translation, ...missingTranslation } =
+			VALID_RESULT;
+		expect(() =>
+			grammarImprovementSchema.parse(missingTranslation),
 		).toThrow();
 	});
 

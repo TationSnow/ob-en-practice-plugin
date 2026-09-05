@@ -19,39 +19,20 @@ export default defineConfig(
 			globals: {
 				...globals.browser,
 			},
-			parserOptions: {
-				projectService: {
-					// 上限略高于测试文件数量，新增测试文件时同步登记下方 allowDefaultProject
-					maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 25,
-					allowDefaultProject: [
-					'eslint.config.mts',
-					'manifest.json',
-					'vitest.config.ts',
-					// 测试文件不在 tsconfig 覆盖范围内，需逐个登记到 default project
-					'tests/prompts.test.ts',
-					'tests/structured-output.test.ts',
-					'tests/model.test.ts',
-					'tests/sentence-utils.test.ts',
-					'tests/grammar-validator.test.ts',
-					'tests/grammar-normalize.test.ts',
-					'tests/panel-events.test.ts',
-					'tests/grammar-highlight.test.ts',
-					'tests/grammar-render.test.ts',
-					'tests/controls.test.ts',
-					'tests/editor.test.ts',
-					'tests/score.test.ts',
-					'tests/debug-log.test.ts',
-					'tests/proxy-fetch.test.ts',
-					'tests/grammar-graph.test.ts',
-					'tests/grammar-improvement.test.ts',
-					'tests/writing-options.test.ts',
-					'tests/improvement-render.test.ts',
-					'tests/setup.ts',
-				],
+				parserOptions: {
+					projectService: {
+						// src 与 tests 均在 tsconfig include 覆盖范围内，
+						// 仅配置文件等非 tsconfig 成员需要登记到 default project
+						maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 10,
+						allowDefaultProject: [
+							'eslint.config.mts',
+							'manifest.json',
+							'vitest.config.ts',
+						],
+					},
+					tsconfigRootDir: import.meta.dirname,
+					extraFileExtensions: ['.json'],
 				},
-				tsconfigRootDir: import.meta.dirname,
-				extraFileExtensions: ['.json'],
-			},
 		},
 	},
 	...obsidianmd.configs.recommended,

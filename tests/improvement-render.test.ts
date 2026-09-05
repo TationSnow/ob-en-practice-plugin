@@ -91,6 +91,7 @@ const RESULT: GrammarImprovementResult = {
 	],
 	suggestions: ['修正固定搭配后句子即可恢复正确。'],
 	improvedSentence: 'I am interested in reading and writing.',
+	translation: '我对阅读和写作感兴趣。',
 };
 
 describe('renderImprovementResult', () => {
@@ -111,5 +112,8 @@ describe('renderImprovementResult', () => {
 		expect(rendered).toContain('between ... and ...');
 		expect(rendered).toContain('改进后的句子');
 		expect(rendered).toContain('I am interested in reading and writing.');
+		// 原始句子附带中文翻译区块
+		expect(rendered).toContain('中文翻译');
+		expect(rendered).toContain('我对阅读和写作感兴趣。');
 	});
 });

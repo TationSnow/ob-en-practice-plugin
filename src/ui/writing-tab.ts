@@ -83,12 +83,17 @@ export function renderWritingPractice(
 		className: 'en-generate-button',
 	});
 	
-	// 参考英语输入（可选），默认收起以突出主流程
-	const refSection = createCollapsibleSection(root, '参考英语（可选）', false);
+	// 参考英语输入（可选），默认收起以突出主流程；
+	// 文案需说明其用途：仅作语法结构参考，不会翻译原句，避免用户误解为“翻译这句”
+	const refSection = createCollapsibleSection(
+		root,
+		'参考英语（可选，仅作语法参考）',
+		false,
+	);
 	const refInput = refSection.content.createEl('textarea', {
 		attr: {
-			'aria-label': '参考英语表达（可选）',
-			placeholder: '输入参考英语表达（可选）',
+			'aria-label': '参考英语表达（可选，仅作为语法结构参考）',
+			placeholder: '输入参考英语句子，出题时仅参考其语法结构（可选）',
 			rows: '2',
 		},
 	});
@@ -153,6 +158,7 @@ export function renderWritingPractice(
 				setStep,
 				theme,
 				seed,
+				reference,
 			);
 			setStep(1);
 			generateStatus.setState('success');
@@ -186,6 +192,7 @@ export function renderWritingPractice(
  * @param setStep 更新工作流步骤
  * @param theme 实际使用的主题（null 表示不指定）
  * @param seed 本次生成使用的随机数种子
+ * @param reference 生成题目时使用的参考英语表达，评估时一并提供
  */
 function renderTranslationQuestion(
 	questionArea: HTMLElement,
@@ -196,6 +203,7 @@ function renderTranslationQuestion(
 	setStep: (step: number) => void,
 	theme: string | null,
 	seed: string,
+	reference: string,
 ): void {
 	questionArea.empty();
 	questionArea.removeClass('is-hidden');
@@ -252,7 +260,7 @@ function renderTranslationQuestion(
 				const result = await evaluateTranslation(
 					question.chinese,
 					userTranslation,
-					'',
+					reference,
 					difficulty,
 					plugin.settings,
 					{ debug: plugin.settings.debugMode },

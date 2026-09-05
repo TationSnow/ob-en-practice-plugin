@@ -8,6 +8,7 @@ import {
 	EnglishPracticeView,
 	VIEW_TYPE,
 } from './views/english-practice-view';
+import { trackDomSelection } from './utils/editor';
 
 export default class EnPracticePlugin extends Plugin {
 	settings!: EnPracticeSettings;
@@ -34,6 +35,13 @@ export default class EnPracticePlugin extends Plugin {
 		// 注册设置页
 		this.settingTab = new EnPracticeSettingTab(this.app, this);
 		this.addSettingTab(this.settingTab);
+
+		// 缓存正文 DOM 选区：点击插件按钮会清空选区，必须随变化提前缓存，
+		// 供“导入当前选区”在 PDF 等非 Markdown 视图下回退使用
+		// （已知限制：popout 窗口中的 PDF 选区不在监听范围内）
+		this.registerDomEvent(activeDocument, 'selectionchange', () => {
+			trackDomSelection(activeDocument);
+		});
 
 		// 布局就绪后激活面板
 		this.app.workspace.onLayoutReady(() => {

@@ -3,8 +3,7 @@ export type DebugPhase =
 	| 'model'
 	| 'request'
 	| 'stream'
-	| 'retry'
-	| 'fallback'
+	| 'repair'
 	| 'success'
 	| 'error';
 

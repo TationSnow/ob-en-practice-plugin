@@ -3,7 +3,6 @@ import { SystemMessage } from '@langchain/core/messages';
 import type { EnPracticeSettings } from '../settings';
 import type { Difficulty, TranslationQuestion, TranslationEvaluation } from '../types';
 import { createRandomSeed } from '../utils/writing-options';
-import { createModel } from './index';
 import {
 	EVALUATE_SYSTEM_PROMPT,
 	GENERATE_SYSTEM_PROMPT,
@@ -13,7 +12,7 @@ import {
 	translationQuestionSchema,
 } from './schemas';
 import {
-	invokeStructured,
+	runStructuredTask,
 	type StructuredOutputCallOptions,
 } from './structured-output';
 
@@ -22,7 +21,8 @@ const GENERATE_PROMPT_TEMPLATE = ChatPromptTemplate.fromMessages([
 	new SystemMessage(GENERATE_SYSTEM_PROMPT),
 	[
 		'human',
-		'难度：{difficulty}\n参考英语表达：{reference}\n主题：{theme}\n请生成一道翻译练习题。\n随机数种子：{seed}',
+		// 字段必须标注角色：参考句仅作语法参考（否则模型会把参考句当待翻译内容），主题是内容硬约束（否则主题被模型忽略）
+		'难度级别：{difficulty}\n参考英语表达（仅参考其语法结构，严禁翻译其内容）：{reference}\n主题（语句内容必须围绕该主题）：{theme}\n请生成一道翻译练习题。\n随机数种子：{seed}',
 	],
 ]);
 
@@ -59,24 +59,18 @@ export async function generateQuestion(
 	options?: StructuredOutputCallOptions,
 	generation?: QuestionGenerationOptions,
 ): Promise<TranslationQuestion> {
-	const model = createModel(settings);
 	const theme = generation?.theme?.trim() || '（无）';
 	const seed = generation?.seed?.trim() || createRandomSeed();
-	return invokeStructured({
-		model,
+	return runStructuredTask(settings, options, {
+		outputName: 'translationQuestion',
 		prompt: GENERATE_PROMPT_TEMPLATE,
 		schema: translationQuestionSchema,
-		outputName: 'translationQuestion',
 		variables: {
 			difficulty,
 			reference: reference || '（无）',
 			theme,
 			seed,
 		},
-		maxRetries: settings.retryCount,
-		onToken: settings.streamingEnabled ? options?.onToken : undefined,
-		debug: options?.debug,
-		thinkingEnabled: settings.thinkingEnabled,
 	});
 }
 
@@ -87,6 +81,7 @@ export async function generateQuestion(
  * @param reference 参考英语表达（可选）
  * @param difficulty 难度级别
  * @param settings 插件设置
+ * @param options 流式/调试选项
  * @returns 评估结果
  */
 export async function evaluateTranslation(
@@ -97,21 +92,15 @@ export async function evaluateTranslation(
 	settings: EnPracticeSettings,
 	options?: StructuredOutputCallOptions,
 ): Promise<TranslationEvaluation> {
-	const model = createModel(settings);
-	return invokeStructured({
-		model,
+	return runStructuredTask(settings, options, {
+		outputName: 'translationEvaluation',
 		prompt: EVALUATE_PROMPT_TEMPLATE,
 		schema: translationEvaluationSchema,
-		outputName: 'translationEvaluation',
 		variables: {
 			chinese,
 			userTranslation,
 			reference: reference || '（无）',
 			difficulty,
 		},
-		maxRetries: settings.retryCount,
-		onToken: settings.streamingEnabled ? options?.onToken : undefined,
-		debug: options?.debug,
-		thinkingEnabled: settings.thinkingEnabled,
 	});
 }
