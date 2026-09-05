@@ -8,6 +8,7 @@ import {
 	GRAMMAR_ROUTER_SYSTEM_PROMPT,
 	GRAMMAR_SYSTEM_PROMPT,
 } from '../src/ai/prompts';
+import { DEFAULT_SETTINGS } from '../src/settings';
 import { isConfigValid } from '../src/types';
 
 describe('ChatPromptTemplate 编译', () => {
@@ -138,9 +139,22 @@ describe('ChatPromptTemplate 编译', () => {
 	});
 
 	it('isConfigValid 应正确判断配置完整性', () => {
-		expect(isConfigValid({ baseUrl: '', modelName: '' })).toBe(false);
-		expect(isConfigValid({ baseUrl: 'http://localhost:1234/v1', modelName: '' })).toBe(false);
-		expect(isConfigValid({ baseUrl: '', modelName: 'gpt-4o' })).toBe(false);
-		expect(isConfigValid({ baseUrl: 'http://localhost:1234/v1', modelName: 'gpt-4o' })).toBe(true);
+		expect(isConfigValid({ ...DEFAULT_SETTINGS })).toBe(false);
+		expect(
+			isConfigValid({
+				...DEFAULT_SETTINGS,
+				baseUrl: 'http://localhost:1234/v1',
+			}),
+		).toBe(false);
+		expect(
+			isConfigValid({ ...DEFAULT_SETTINGS, modelName: 'gpt-4o' }),
+		).toBe(false);
+		expect(
+			isConfigValid({
+				...DEFAULT_SETTINGS,
+				baseUrl: 'http://localhost:1234/v1',
+				modelName: 'gpt-4o',
+			}),
+		).toBe(true);
 	});
 });

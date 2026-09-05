@@ -4,6 +4,7 @@ import {
 	evaluateTranslation,
 	generateQuestion,
 } from '../src/ai/translation-writing';
+import { DEFAULT_SETTINGS } from '../src/settings';
 import type { EnPracticeSettings } from '../src/settings';
 
 // runStructuredTask 内部会创建真实模型，测试中替换为桩实现
@@ -67,6 +68,7 @@ function createSettings(
 	overrides: Partial<EnPracticeSettings> = {},
 ): EnPracticeSettings {
 	return {
+		...DEFAULT_SETTINGS,
 		apiKey: 'test-key',
 		baseUrl: 'https://example.com/v1',
 		modelName: 'test-model',
