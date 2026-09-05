@@ -65,7 +65,7 @@ export const STRUCTURED_OUTPUT_MODE_OPTIONS: Record<StructuredOutputMode, string
 
 /** 档位覆盖 maxTokens 的合法区间（与设置页全局“最长 token”一致） */
 export const MODEL_PROFILE_MAX_TOKENS_MIN = 256;
-export const MODEL_PROFILE_MAX_TOKENS_MAX = 32768;
+export const MODEL_PROFILE_MAX_TOKENS_MAX = 51200;
 
 /** 旧版本遗留的无效设置键：迁移时从 data.json 剥离，避免永久滞留 */
 const LEGACY_RESIDUE_KEYS = ['retryCount', 'thinkingEnabled'] as const;

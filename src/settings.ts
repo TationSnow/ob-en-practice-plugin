@@ -128,12 +128,12 @@ export class EnPracticeSettingTab extends PluginSettingTab {
 				items: [
 					{
 						name: '最长 token',
-						desc: '单次请求生成内容的最大 token 数（256-32768）。',
+						desc: '单次请求生成内容的最大 token 数（256-51200）。',
 						control: {
 							type: 'number',
 							key: 'maxTokens',
 							min: 256,
-							max: 32768,
+							max: 51200,
 							step: 256,
 							placeholder: '4096',
 							defaultValue: 4096,
