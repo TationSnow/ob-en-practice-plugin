@@ -42,6 +42,7 @@ function createPlugin(settings: EnPracticeSettings) {
 		settings,
 		saveData: vi.fn(async () => {}),
 		saveSettings: vi.fn(async () => {}),
+		notifyActiveModelChanged: vi.fn(),
 	};
 }
 
@@ -58,6 +59,18 @@ function openModal(settings = createSettings()) {
 /** 等待异步持久化流程完成 */
 async function flush(): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** 统计容器中 Setting 行标记数量（DOM 层面检测重复渲染） */
+function countSettingRows(root: StubElementLike): number {
+	return root.queryAll((el) => el.tag === 'setting-row').length;
+}
+
+/** 打开弹窗并进入指定档位的编辑表单 */
+function openEditForm(profileName: string) {
+	const { plugin, contentEl } = openModal();
+	findButtons(contentEl, `编辑：${profileName}`)[0]?.trigger('click');
+	return { plugin, contentEl };
 }
 
 /** 按类别查找全部行内图标按钮（以 aria-label 定位） */
@@ -268,5 +281,116 @@ describe('ModelManagerModal 表单视图', () => {
 				(instance) => instance.name === '代理地址',
 			),
 		).toBe(true);
+	});
+});
+
+describe('激活档位变化通知面板（BUG 回归：徽章不同步）', () => {
+	it('弹窗中设为当前后，通知插件同步面板徽章', async () => {
+		const settings = createSettings([
+			createProfile(),
+			createProfile({ id: 'profile-2', name: 'DeepSeek 云端' }),
+		]);
+		const { plugin, contentEl } = openModal(settings);
+
+		findButtons(contentEl, '设为当前：DeepSeek 云端')[0]?.trigger('click');
+		await flush();
+
+		expect(settings.activeModelId).toBe('profile-2');
+		expect(plugin.notifyActiveModelChanged).toHaveBeenCalledTimes(1);
+	});
+
+	it('删除激活档位（自动切换到剩余首个）后通知插件同步面板徽章', async () => {
+		const settings = createSettings([
+			createProfile(),
+			createProfile({ id: 'profile-2', name: 'DeepSeek 云端' }),
+		]);
+		const { plugin, contentEl } = openModal(settings);
+
+		findButtons(contentEl, '删除：本地 LM Studio')[0]?.trigger('click');
+		await flush();
+
+		expect(settings.activeModelId).toBe('profile-2');
+		expect(plugin.notifyActiveModelChanged).toHaveBeenCalledTimes(1);
+	});
+
+	it('保存新增档位后通知插件同步面板徽章', async () => {
+		const settings = createSettings();
+		const { plugin } = openModal(settings);
+
+		const addRow = getSettingInstances().find(
+			(instance) => instance.name === '新增模型接入口',
+		);
+		await addRow?.components.buttons[0]?.click?.();
+
+		const type = (rowName: string, value: string): void => {
+			getSettingInstances()
+				.find((instance) => instance.name === rowName)
+				?.components.texts[0]?.change?.(value);
+		};
+		type('名称', '云端备用');
+		type('API 地址', 'https://api.example.com/v1');
+		type('模型名称', 'gpt-4o-mini');
+
+		const saveRow = getSettingInstances().find(
+			(instance) => instance.name === '新增接入口',
+		);
+		await saveRow?.components.buttons
+			.find((button) => button.text === '保存')
+			?.click?.();
+		await flush();
+
+		expect(settings.models).toHaveLength(2);
+		expect(plugin.notifyActiveModelChanged).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('API 密钥显隐与表单重建（BUG 回归：重复配置项）', () => {
+	it('点击小眼睛就地切换输入框类型与图标，不产生重复配置项', () => {
+		const { contentEl } = openEditForm('本地 LM Studio');
+		const rowsBefore = countSettingRows(contentEl);
+		const keyRow = getSettingInstances().find(
+			(instance) => instance.name === 'API 密钥',
+		);
+		const inputEl = keyRow?.components.texts[0]?.inputEl;
+		const eyeButton = keyRow?.components.extraButtons[0];
+		expect(inputEl?.attrs['type']).toBe('password');
+
+		eyeButton?.click?.();
+
+		// 不重建表单：渲染行数与“API 密钥”行实例数均不变
+		expect(countSettingRows(contentEl)).toBe(rowsBefore);
+		expect(
+			getSettingInstances().filter(
+				(instance) => instance.name === 'API 密钥',
+			),
+		).toHaveLength(1);
+		expect(inputEl?.attrs['type']).toBe('text');
+		expect(eyeButton?.icon).toBe('eye-off');
+
+		eyeButton?.click?.();
+		expect(inputEl?.attrs['type']).toBe('password');
+		expect(eyeButton?.icon).toBe('eye');
+	});
+
+	it('代理覆盖切换为启用时重建为单份表单，仅新增一条代理地址配置', async () => {
+		const { contentEl } = openEditForm('本地 LM Studio');
+		const rowsBefore = countSettingRows(contentEl);
+		const instanceSnapshot = getSettingInstances().length;
+
+		const proxyRow = getSettingInstances().find(
+			(instance) => instance.name === '代理覆盖',
+		);
+		await proxyRow?.components.dropdowns[0]?.change?.('on');
+
+		// 重建后的表单只渲染一份：整体行数仅多出一条代理地址行
+		expect(countSettingRows(contentEl)).toBe(rowsBefore + 1);
+		// 本次重建新建的 Setting 实例中，名称与代理地址各只有一条
+		const rebuilt = getSettingInstances().slice(instanceSnapshot);
+		expect(
+			rebuilt.filter((instance) => instance.name === '名称'),
+		).toHaveLength(1);
+		expect(
+			rebuilt.filter((instance) => instance.name === '代理地址'),
+		).toHaveLength(1);
 	});
 });

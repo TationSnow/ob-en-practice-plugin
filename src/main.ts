@@ -100,4 +100,20 @@ export default class EnPracticePlugin extends Plugin {
 			}
 		});
 	}
+
+	/**
+	 * 通知所有面板同步激活模型档位的变化
+	 * （来源：设置弹窗中的设为当前/新增/删除、面板快速切换）。
+	 * 刷新粒度由面板自行决定：仅更新连接徽章；
+	 * 配置从无到有时（如新增首个档位）才整页重渲染展开功能模块，
+	 * 避免切换模型清空用户已输入的内容。
+	 */
+	notifyActiveModelChanged(): void {
+		this.app.workspace.getLeavesOfType(VIEW_TYPE).forEach((leaf) => {
+			const view = leaf.view;
+			if (view instanceof EnglishPracticeView) {
+				view.syncActiveModel();
+			}
+		});
+	}
 }

@@ -172,6 +172,17 @@ vi.mock('obsidian', () => ({
 
 		constructor(_containerEl: unknown) {
 			Setting.instances.push(this);
+			// 在桩容器中留下标记节点，使测试可以在 DOM 层面统计渲染行数
+			// （模拟真实 Setting 会向容器追加 DOM 的行为）
+			const container = _containerEl as
+				| { children?: unknown[] }
+				| null
+				| undefined;
+			if (container && Array.isArray(container.children)) {
+				const marker = new StubElement();
+				marker.tag = 'setting-row';
+				container.children.push(marker);
+			}
 		}
 
 		setName(name: string): this {

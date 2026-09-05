@@ -168,6 +168,9 @@ class ModelManagerModal extends Modal {
 	/** 渲染新增/编辑表单 */
 	private renderForm(): void {
 		const { contentEl } = this;
+		// 就地重建表单（如切换代理覆盖后补显代理地址行）前必须清空容器，
+		// 防止在旧表单下方追加出重复的配置项
+		contentEl.empty();
 		const isEditing = this.editingId !== '';
 
 		new Setting(contentEl)
@@ -199,11 +202,14 @@ class ModelManagerModal extends Modal {
 					}),
 			);
 
+		// 密钥输入框引用：显隐切换时就地修改类型，不重建表单
+		let apiKeyInputEl: HTMLElement | undefined;
 		new Setting(contentEl)
 			.setName('API 密钥')
 			.setDesc('本地服务通常无需填写。')
 			.addText((text) => {
 				text.inputEl.setAttr('type', this.keyVisible ? 'text' : 'password');
+				apiKeyInputEl = text.inputEl;
 				text.setPlaceholder('sk-...')
 					.setValue(this.draft.apiKey)
 					.onChange((value) => {
@@ -214,10 +220,16 @@ class ModelManagerModal extends Modal {
 			.addExtraButton((button) =>
 				button
 					.setIcon(this.keyVisible ? 'eye-off' : 'eye')
-					.setTooltip('显示/隐藏密钥')
+					.setTooltip(this.keyVisible ? '隐藏密钥' : '显示密钥')
 					.onClick(() => {
 						this.keyVisible = !this.keyVisible;
-						this.renderForm();
+						// 仅切换输入框类型与图标，不重建表单——
+						// 重建会清空未落草稿的输入焦点并在旧表单下方产生重复配置项
+						apiKeyInputEl?.setAttr(
+							'type',
+							this.keyVisible ? 'text' : 'password',
+						);
+						button.setIcon(this.keyVisible ? 'eye-off' : 'eye');
 					}),
 			);
 
@@ -400,10 +412,13 @@ class ModelManagerModal extends Modal {
 	/**
 	 * 持久化档位变更并通知宿主刷新。
 	 * 直接保存插件数据而非 saveSettings()，避免面板整页重渲染；
-	 * 由 onChange 回调决定设置页/面板的刷新粒度。
+	 * 由 onChange 回调决定设置页/面板下拉的刷新粒度，
+	 * 并通过 notifyActiveModelChanged 让面板同步连接徽章
+	 * （激活档位可能因设为当前/新增首个/删除激活档位而变化）。
 	 */
 	private async persist(): Promise<void> {
 		await this.plugin.saveData(this.plugin.settings);
 		this.onChange();
+		this.plugin.notifyActiveModelChanged();
 	}
 }
