@@ -42,3 +42,26 @@ export function getActiveSelection(app: App): string | null {
 	}
 	return lastDomSelection;
 }
+
+/**
+ * 在多行文本输入框的光标处插入文本（保留原选区内容，插入后焦点回到输入框）。
+ * 供词典查询面板把英文候选词写入翻译输入框使用。
+ * @param textarea 目标输入框
+ * @param text 要插入的文本（自动追加尾随空格，符合英文书写习惯）
+ */
+export function insertTextAtCursor(
+	textarea: HTMLTextAreaElement,
+	text: string,
+): void {
+	const insertion = `${text.trim()} `;
+	const start = textarea.selectionStart ?? textarea.value.length;
+	const end = textarea.selectionEnd ?? start;
+	textarea.value =
+		textarea.value.slice(0, start) +
+		insertion +
+		textarea.value.slice(end);
+	// 光标移到插入文本末尾，便于用户继续输入
+	const caret = start + insertion.length;
+	textarea.setSelectionRange(caret, caret);
+	textarea.focus();
+}

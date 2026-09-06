@@ -149,9 +149,9 @@ describe('validateModelProfileDraft', () => {
 	it('maxTokens 覆盖越界时拒绝，未填写时放行', () => {
 		expect(
 			validateModelProfileDraft(createDraft({ maxTokens: 128 }), []),
-		).toContain('最长 token 需为 256-32768 之间的整数');
+		).toContain('最长 token 需为 256-51200 之间的整数');
 		expect(
-			validateModelProfileDraft(createDraft({ maxTokens: 32768 }), []),
+			validateModelProfileDraft(createDraft({ maxTokens: 51200 }), []),
 		).toEqual([]);
 		expect(validateModelProfileDraft(createDraft(), [])).toEqual([]);
 	});
