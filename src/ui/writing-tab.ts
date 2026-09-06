@@ -28,9 +28,11 @@ import {
 } from './sections';
 import { createStatusLine } from './status';
 import { createWorkflowStepper } from './workflow';
+import { createDictionaryPanel } from './dictionary-panel';
 import { createSeedField, createThemeSelect } from './writing-controls';
 import { onGrammarReference } from './panel-events';
 import { getScoreClass } from '../utils/score';
+import { insertTextAtCursor } from '../utils/editor';
 
 /** 当前题目与流程状态 */
 interface WritingState {
@@ -229,16 +231,23 @@ function renderTranslationQuestion(
 		createTag(tagRow, question.targetGrammar, 'accent');
 	}
 
-	// 用户翻译输入
-	const inputSection = createResultSection(card, '你的翻译');
-	const userInput = inputSection.createEl('textarea', {
-		attr: {
-			'aria-label': '你的翻译',
-			placeholder: '输入你的翻译...',
-			rows: '3',
-		},
-	});
-	userInput.addClass('en-text-input');
+		// 用户翻译输入
+		const inputSection = createResultSection(card, '你的翻译');
+		const userInput = inputSection.createEl('textarea', {
+			attr: {
+				'aria-label': '你的翻译',
+				placeholder: '输入你的翻译...',
+				rows: '3',
+			},
+		});
+		userInput.addClass('en-text-input');
+
+		// 中译英查词：写作中突然忘记某个中文词的英文拼写时就地查询，
+		// 候选词（含词性/释义/音标）可一键插入本输入框光标处，
+		// 避免切去其他词典页面产生分心（词典本地查询，确定性结果）
+		createDictionaryPanel(inputSection, {
+			onInsert: (word) => insertTextAtCursor(userInput, word),
+		});
 
 	const actionContainer = card.createDiv('en-card-actions');
 	createActionButton(

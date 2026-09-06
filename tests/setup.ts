@@ -79,6 +79,15 @@ const { StubElement } = vi.hoisted(() => {
 			return this;
 		}
 
+		getAttribute(key: string): string | null {
+			return this.attrs[key] ?? null;
+		}
+
+		removeAttribute(key: string): this {
+			delete this.attrs[key];
+			return this;
+		}
+
 		empty(): void {
 			this.children = [];
 		}
@@ -87,9 +96,9 @@ const { StubElement } = vi.hoisted(() => {
 			this.listeners[type] = callback;
 		}
 
-		/** 触发已注册的事件（测试用） */
-		trigger(type: string): void {
-			this.listeners[type]?.();
+		/** 触发已注册的事件（测试用，可携带事件对象） */
+		trigger(type: string, event?: unknown): void {
+			this.listeners[type]?.(event);
 		}
 
 		/** 按谓词查找子孙元素（测试用） */

@@ -10,6 +10,10 @@
 	gap: var(--size-4-3);
 	overflow-y: auto;
 	overflow-x: hidden;
+	/* 侧栏视图在部分主题/环境下继承 user-select: none，导致面板内容无法鼠标框选复制；
+	   在视图根显式恢复文本可选（折叠头部等交互元素的 none 规则为直接声明，优先级更高不受影响） */
+	-webkit-user-select: text;
+	user-select: text;
 }
 
 /* 隐藏状态统一使用类控制，避免 !important 覆盖用户主题 */
@@ -1086,4 +1090,85 @@
 
 .en-debug-error .en-debug-entry-header {
 	color: var(--text-error);
+}
+
+/* ===== 中译英查词面板（翻译写作页） ===== */
+.en-dict-results {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-2);
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.en-dict-row {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	padding: var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	box-sizing: border-box;
+}
+
+.en-dict-head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	flex-wrap: wrap;
+	min-width: 0;
+}
+
+.en-dict-word {
+	color: var(--text-normal);
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold);
+}
+
+.en-dict-phonetic {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.en-dict-actions {
+	display: flex;
+	flex-shrink: 0;
+	gap: var(--size-4-1);
+	margin-left: auto;
+}
+
+.en-dict-senses {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+}
+
+.en-dict-sense {
+	display: flex;
+	gap: var(--size-4-2);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	line-height: var(--line-height-normal);
+}
+
+.en-dict-pos {
+	flex-shrink: 0;
+	min-width: 28px;
+	color: var(--text-muted);
+	font-family: var(--font-monospace);
+}
+
+.en-dict-gloss {
+	flex: 1;
+	min-width: 0;
+}
+
+.en-dict-empty {
+	margin: 0;
+	padding: var(--size-4-2);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	line-height: 1.5;
 }

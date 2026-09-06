@@ -53,6 +53,23 @@ export default defineConfig(
 		},
 		rules: {
 			'obsidianmd/prefer-window-timers': 'off',
+			// 测试直读真实词典数据产物（node:fs）与构造临时文件，Node API 合法
+			'obsidianmd/no-nodejs-modules': 'off',
+		},
+	},
+	{
+		// 数据清洗脚本运行于 Node 24（原生执行 TS），仅使用 Node 内建能力
+		files: ['scripts/**/*.ts'],
+		languageOptions: {
+			globals: {
+				...globals.node,
+			},
+		},
+		rules: {
+			'obsidianmd/no-nodejs-modules': 'off',
+			// 构建脚本需要向终端输出统计结果（该规则为 no-console 的包装规则）
+			'obsidianmd/rule-custom-message': 'off',
+			'no-console': 'off',
 		},
 	},
 	{
