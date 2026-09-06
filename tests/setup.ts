@@ -69,6 +69,15 @@ const { StubElement } = vi.hoisted(() => {
 			return this;
 		}
 
+		toggleClass(cls: string, force: boolean): this {
+			if (force) {
+				this.classes.add(cls);
+			} else {
+				this.classes.delete(cls);
+			}
+			return this;
+		}
+
 		setText(text: string): this {
 			this.text = text;
 			return this;
@@ -90,6 +99,8 @@ const { StubElement } = vi.hoisted(() => {
 
 		empty(): void {
 			this.children = [];
+			// 与真实 DOM 一致：empty() 同时移除文本内容
+			this.text = '';
 		}
 
 		addEventListener(type: string, callback: (event?: unknown) => void): void {

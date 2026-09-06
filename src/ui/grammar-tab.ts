@@ -1,24 +1,9 @@
 import { Notice } from 'obsidian';
 import type EnPracticePlugin from '../main';
-import { AiError, type GrammarResult } from '../types';
-import { analyzeGrammarRouted } from '../ai/grammar-graph';
-import { splitSentences, stripGrammarAnnotations } from '../utils/sentence';
-import {
-	createActionButton,
-	createIconButton,
-} from './controls';
-import {
-	createResultCard,
-	createResultSection,
-	createTag,
-} from './sections';
+import { createActionButton, createIconButton } from './controls';
 import { createStatusLine } from './status';
-import { renderImprovementResult } from './improvement-render';
-import {
-	COMPONENT_LABELS,
-	renderHighlightedSentence,
-} from './grammar-render';
 import { dispatchGrammarReference } from './panel-events';
+import { runGrammarAnalysis } from './grammar-analysis-runner';
 
 /** 语法分析页与外部协作所需的回调 */
 export interface GrammarAnalysisCallbacks {
@@ -30,6 +15,8 @@ export interface GrammarAnalysisCallbacks {
 
 /**
  * 渲染语法分析模块。
+ * 分析流程（分句、逐句 routed 分析、结果渲染）由 grammar-analysis-runner
+ * 提供，与翻译写作页的“语法分析”按钮共用同一实现。
  * @param container 父容器
  * @param plugin 插件实例
  * @param events 面板内共享的事件总线，用于和翻译写作模块联动
@@ -82,90 +69,20 @@ export function renderGrammarAnalysis(
 	// 最近一次成功分析的完整输入，供“用于翻译写作”按钮使用
 	let analyzedInput = '';
 
-	/** 对输入内容按句分析，逐句渲染结果卡片 */
+	/** 对输入内容按句分析（共用流程），成功后允许“用于翻译写作” */
 	async function runAnalysis(): Promise<void> {
-		// 清理上次渲染留下的括号标注，避免模型把标注符号当成原句
-		const input = stripGrammarAnnotations(textarea.value.trim());
-		if (!input) {
-			new Notice('请输入要分析的英语句子');
-			return;
-		}
-		const sentences = splitSentences(input);
-		if (sentences.length === 0) {
-			new Notice('未识别到有效的英语句子');
-			return;
-		}
-
-		status.clear();
-		status.setState('loading');
-		status.setText(`正在分析第 1/${sentences.length} 句…`);
-		status.show();
 		analyzedInput = '';
 		useForWritingButton.addClass('is-hidden');
-		resultList.empty();
-		resultList.removeClass('is-hidden');
-
-		// 流式输出累计缓冲，用于在状态栏展示生成预览
-		let streamBuffer = '';
-
-		try {
-			for (let index = 0; index < sentences.length; index += 1) {
-				const sentence = sentences[index];
-				if (!sentence) continue;
-				// 每句开始时重置流式缓冲
-				streamBuffer = '';
-				status.setText(`正在分析第 ${index + 1}/${sentences.length} 句…`);
-				const result = await analyzeGrammarRouted(
-					sentence,
-					plugin.settings,
-					{
-						debug: plugin.settings.debugMode,
-						// 把流式分片接入状态栏，让“启用流式输出”设置真正可见
-						onToken: (token) => {
-							streamBuffer = (streamBuffer + token).slice(-120);
-							status.setText(
-								`正在分析第 ${index + 1}/${sentences.length} 句… ` +
-									`${streamBuffer.trimStart().slice(-40)}`,
-							);
-						},
-					},
-				);
-				if (result.route === 'improvement' && result.improvement) {
-					renderImprovementResult(
-						resultList,
-						result.improvement,
-						sentence,
-						index + 1,
-						sentences.length,
-					);
-				} else if (result.analysis) {
-					renderGrammarResult(
-						resultList,
-						result.analysis,
-						sentence,
-						index + 1,
-						sentences.length,
-					);
-				}
-			}
-			status.setState('success');
-			status.setText(`分析完成，共 ${sentences.length} 句`);
-			analyzedInput = input;
-			useForWritingButton.removeClass('is-hidden');
-		} catch (err) {
-			status.setState('error');
-			// 解析失败属于“模型格式问题”，原始 JSON 只留在调试面板，
-			// 界面只展示面向用户的简短文案
-			const message =
-				err instanceof AiError && err.code === 'PARSE_ERROR'
-					? '模型输出格式校验失败，请重试或换用更强的模型'
-					: err instanceof Error
-						? err.message
-						: '未知错误';
-			status.setText(`分析失败：${message}`);
-			new Notice(`分析失败：${message}`);
-			useForWritingButton.addClass('is-hidden');
-		}
+		await runGrammarAnalysis({
+			plugin,
+			input: textarea.value,
+			status,
+			resultList,
+			onSuccess: (analyzed) => {
+				analyzedInput = analyzed;
+				useForWritingButton.removeClass('is-hidden');
+			},
+		});
 	}
 
 	// 分析完成后，将整段输入作为参考英语用于翻译写作
@@ -185,104 +102,9 @@ export function renderGrammarAnalysis(
 	);
 	useForWritingButton.addClass('is-hidden');
 
-
 	createActionButton(toolbar, '分析', runAnalysis, {
 		icon: 'wand-2',
 		variant: 'primary',
 	});
 	return () => {};
-}
-
-/**
- * 渲染语法分析结果卡片。
- * @param container 结果列表容器
- * @param result 分析结果
- * @param originalSentence 用户输入的原句
- * @param index 当前句子序号（从 1 开始）
- * @param total 本次分析的句子总数
- */
-function renderGrammarResult(
-	container: HTMLElement,
-	result: GrammarResult,
-	originalSentence: string,
-	index: number,
-	total: number,
-): void {
-	const card = createResultCard(
-		container,
-		total > 1 ? `第 ${index} 句` : undefined,
-	);
-
-	// 顶部标签快速展示时态、语态与句型
-	const tagRow = card.createDiv('en-tag-row');
-	for (const tense of result.tense) {
-		createTag(tagRow, tense, 'accent');
-	}
-	createTag(tagRow, result.voice, 'neutral');
-	createTag(tagRow, result.sentenceType, 'success');
-
-	// 中文翻译：先理解句意，再阅读结构分析
-	const translationSection = createResultSection(card, '中文翻译');
-	translationSection
-		.createEl('p', { text: result.translation })
-		.addClass('en-translation-text');
-
-	// 带成分与从句标注的句子展示
-	const sentenceSection = createResultSection(card, '句子成分标注');
-	renderHighlightedSentence(
-		sentenceSection,
-		originalSentence || result.sentence,
-		result.components,
-		result.clauses,
-	);
-
-	// 分句结构：按层级缩进展示主句与从句
-	const clauseSection = createResultSection(card, '分句结构');
-	const clauseList = clauseSection.createEl('ol', { attr: { role: 'list' } });
-	clauseList.addClass('en-clause-list');
-	for (const clause of result.clauses) {
-		const item = clauseList.createEl('li');
-		item.addClass(`en-clause-depth-${Math.min(clause.level, 4)}`);
-		item.createSpan('en-clause-type').setText(clause.type);
-		item.createSpan('en-clause-text').setText(clause.text);
-		if (clause.function) {
-			item.createSpan('en-clause-function').setText(
-				`（${clause.function}）`,
-			);
-		}
-	}
-
-	// 成分明细：展示完整片段、类型与内部结构说明
-	const detailSection = createResultSection(card, '成分明细');
-	const componentTable = detailSection.createEl('table');
-	componentTable.addClass('en-info-table');
-	for (const component of result.components) {
-		const tr = componentTable.createEl('tr');
-		tr.createEl('td', { text: component.text });
-		tr.createEl('td', {
-			text: COMPONENT_LABELS[component.type],
-		}).addClass('en-component-type');
-		tr.createEl('td', {
-			text: component.details ?? '—',
-		}).addClass('en-component-details');
-	}
-
-	// 语法信息总览
-	const infoSection = createResultSection(card, '语法信息');
-	const table = infoSection.createEl('table');
-	table.addClass('en-info-table');
-
-	const rows: [string, string][] = [
-		['时态', result.tense.join('、')],
-		['语态', result.voice],
-		['语气', result.mood],
-		['句型', result.sentenceType],
-		['结构概括', result.structureSummary],
-	];
-
-	for (const [label, value] of rows) {
-		const tr = table.createEl('tr');
-		tr.createEl('td', { text: label }).addClass('en-info-label');
-		tr.createEl('td', { text: value });
-	}
 }
