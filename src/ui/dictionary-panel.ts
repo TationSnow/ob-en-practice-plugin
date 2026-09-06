@@ -2,6 +2,7 @@ import { Notice } from 'obsidian';
 import { searchDictionary } from '../dictionary/dictionary-data';
 import { DEFAULT_MATCH_LIMIT, formatWordForms } from '../dictionary/lookup';
 import type { DictionaryMatch } from '../dictionary/types';
+import { speakEnglish } from '../speech/tts';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { paginate, type PaginationResult } from '../utils/pagination';
 import { createActionButton, createIconButton } from './controls';
@@ -158,6 +159,10 @@ function renderMatchRow(
 
 	const head = row.createDiv('en-dict-head');
 	head.createSpan('en-dict-word').setText(match.word);
+	// 单词旁朗读喇叭：点击播放单词语音（高度与单词标题一致）
+	createIconButton(head, 'volume-2', `播放 ${match.word} 语音`, () => {
+		speakEnglish(match.word);
+	}, { compact: true });
 	if (match.phonetic) {
 		head.createSpan('en-dict-phonetic').setText(`/${match.phonetic}/`);
 	}
