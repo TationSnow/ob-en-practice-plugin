@@ -14,14 +14,11 @@ export interface ModelQuickSelectControl {
 }
 
 /**
- * 计算面板连接徽章文案：显示当前激活档位名，未选择时仅显示“已连接”。
- * 供视图初始渲染与激活档位变化同步共用，保证两处格式一致。
  * @param settings 全局设置
  * @returns 徽章文案
  */
 export function formatModelBadgeText(settings: GlobalModelDefaults): string {
-	const active = getActiveModelProfile(settings);
-	return active ? `已连接 · ${active.name}` : '已连接';
+	return '已连接';
 }
 
 /**
