@@ -1,6 +1,6 @@
 import { Notice } from 'obsidian';
-import { searchChinese } from '../dictionary/dictionary-data';
-import { DEFAULT_MATCH_LIMIT } from '../dictionary/lookup';
+import { searchDictionary } from '../dictionary/dictionary-data';
+import { DEFAULT_MATCH_LIMIT, formatWordForms } from '../dictionary/lookup';
 import type { DictionaryMatch } from '../dictionary/types';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { paginate, type PaginationResult } from '../utils/pagination';
@@ -42,11 +42,12 @@ const TAG_LABELS: Record<string, string> = {
 };
 
 /**
- * 创建「中译英查词」面板（可折叠区块）。
- * 场景：写作时某个中文词忘记英文拼写，就地查询多个近义英文候选
- * （含词性、释义、音标），一键插入翻译输入框或复制，避免切换页面分心。
- * 查询为本地词典匹配，结果确定、零网络延迟；不使用 AI（用户定夺）。
- * 结果分页展示：默认每页 5 条，支持上下页、跳页与调整每页大小。
+ * 创建「写作查词」面板（可折叠区块）。
+ * 双向查询（方向自动检测）：写作中忘记某个中文词的英文拼写时输入中文，
+ * 检索多个近义英文候选；想到某个英文单词但不确定拼写/含义时输入英文，
+ * 验证单词是否存在并查看词性、释义、词形变换等。候选可一键插入翻译输入框
+ * 或复制，避免切换页面分心。查询为本地词典匹配，结果确定、零网络延迟；
+ * 不使用 AI（用户定夺）。结果分页展示：默认每页 5 条。
  * @param container 父容器（翻译输入区所在卡片）
  * @param options 面板选项
  */
@@ -54,17 +55,13 @@ export function createDictionaryPanel(
 	container: HTMLElement,
 	options: DictionaryPanelOptions = {},
 ): void {
-	const section = createCollapsibleSection(
-		container,
-		'中译英查词（写作助手）',
-		true,
-	);
+	const section = createCollapsibleSection(container, '写作查词', true);
 	const fieldRow = section.content.createDiv('en-field-row en-dict-field-row');
 	const input = fieldRow.createEl('input', {
 		attr: {
 			type: 'text',
-			'aria-label': '输入中文单词查询英文表达',
-			placeholder: '输入中文词，如：忘记 / 政府 / 高兴',
+			'aria-label': '输入中文词或英文单词查词',
+			placeholder: '输入中文词或英文单词，如：忘记 / government / l_n',
 		},
 	});
 	input.addClass('en-text-input');
@@ -80,7 +77,9 @@ export function createDictionaryPanel(
 		resultArea.empty();
 		if (matches.length === 0) {
 			resultArea
-				.createEl('p', { text: '词典未收录该释义，试试更通用的说法。' })
+				.createEl('p', {
+					text: '词典未收录该词或释义，试试其他拼写或更通用的说法。',
+				})
 				.addClass('en-dict-empty');
 			return;
 		}
@@ -120,7 +119,7 @@ export function createDictionaryPanel(
 			return;
 		}
 		try {
-			matches = searchChinese(query, { limit: options.limit });
+			matches = searchDictionary(query, { limit: options.limit });
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			resultArea.empty();
@@ -191,6 +190,16 @@ function renderMatchRow(
 			senseRow.createSpan('en-dict-pos').setText(sense.p);
 		}
 		senseRow.createSpan('en-dict-gloss').setText(sense.z);
+	}
+
+	// 词形变换：英文查词场景下验证过去式/复数等变形很有用
+	if (match.exchange) {
+		const formsText = formatWordForms(match.exchange);
+		if (formsText) {
+			const formsRow = row.createDiv('en-dict-forms');
+			formsRow.createSpan('en-dict-forms-label').setText('词形变换');
+			formsRow.createSpan('en-dict-forms-text').setText(formsText);
+		}
 	}
 }
 

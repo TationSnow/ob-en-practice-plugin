@@ -9,12 +9,12 @@ import {
 } from './setup';
 
 // 词典查询与剪贴板替换为桩实现（数据模块依赖 esbuild text loader，测试不导入）
-const { searchChineseMock, copyTextToClipboardMock } = vi.hoisted(() => ({
-	searchChineseMock: vi.fn(),
+const { searchDictionaryMock, copyTextToClipboardMock } = vi.hoisted(() => ({
+	searchDictionaryMock: vi.fn(),
 	copyTextToClipboardMock: vi.fn(),
 }));
 vi.mock('../src/dictionary/dictionary-data', () => ({
-	searchChinese: searchChineseMock,
+	searchDictionary: searchDictionaryMock,
 }));
 vi.mock('../src/utils/clipboard', () => ({
 	copyTextToClipboard: copyTextToClipboardMock,
@@ -95,9 +95,9 @@ async function flush(): Promise<void> {
 
 beforeEach(() => {
 	resetRecordedMocks();
-	searchChineseMock.mockReset();
+	searchDictionaryMock.mockReset();
 	// 默认返回空结果：仅断言调用参数的用例无需逐个设置返回值
-	searchChineseMock.mockReturnValue([]);
+	searchDictionaryMock.mockReturnValue([]);
 	copyTextToClipboardMock.mockReset();
 	copyTextToClipboardMock.mockResolvedValue(undefined);
 });
@@ -107,13 +107,13 @@ describe('createDictionaryPanel', () => {
 		const { findButton } = openPanel();
 		findButton('查询')?.trigger('click');
 
-		expect(searchChineseMock).not.toHaveBeenCalled();
+		expect(searchDictionaryMock).not.toHaveBeenCalled();
 		expect(getNoticeMessages()).toContain('请输入要查询的中文词');
 	});
 
 	it('查询后渲染候选列表：词、音标、考纲标签与词性释义', () => {
 		const { container, findButton } = openPanel();
-		searchChineseMock.mockReturnValue([
+		searchDictionaryMock.mockReturnValue([
 			createForgetMatch(),
 			createGovernmentMatch(),
 		]);
@@ -122,7 +122,7 @@ describe('createDictionaryPanel', () => {
 
 		findButton('查询')?.trigger('click');
 
-		expect(searchChineseMock).toHaveBeenCalledWith('忘记', {
+		expect(searchDictionaryMock).toHaveBeenCalledWith('忘记', {
 			limit: undefined,
 		});
 		const rows = container.queryAll((el) =>
@@ -158,7 +158,7 @@ describe('createDictionaryPanel', () => {
 			preventDefault: vi.fn(),
 		});
 
-		expect(searchChineseMock).toHaveBeenCalledWith('政府', {
+		expect(searchDictionaryMock).toHaveBeenCalledWith('政府', {
 			limit: undefined,
 		});
 	});
@@ -166,7 +166,7 @@ describe('createDictionaryPanel', () => {
 	it('点击插入按钮回调携带候选词', () => {
 		const onInsert = vi.fn();
 		const { container, findButton } = openPanel({ onInsert });
-		searchChineseMock.mockReturnValue([createForgetMatch()]);
+		searchDictionaryMock.mockReturnValue([createForgetMatch()]);
 		const input = findInput(container);
 		input.value = '忘记';
 		findButton('查询')?.trigger('click');
@@ -178,7 +178,7 @@ describe('createDictionaryPanel', () => {
 
 	it('点击复制按钮写入剪贴板并提示', async () => {
 		const { container, findButton } = openPanel();
-		searchChineseMock.mockReturnValue([createForgetMatch()]);
+		searchDictionaryMock.mockReturnValue([createForgetMatch()]);
 		const input = findInput(container);
 		input.value = '忘记';
 		findButton('查询')?.trigger('click');
@@ -192,7 +192,7 @@ describe('createDictionaryPanel', () => {
 
 	it('未收录时展示空态提示', () => {
 		const { container, findButton } = openPanel();
-		searchChineseMock.mockReturnValue([]);
+		searchDictionaryMock.mockReturnValue([]);
 		const input = findInput(container);
 		input.value = '不存在的词';
 		findButton('查询')?.trigger('click');
@@ -206,7 +206,7 @@ describe('createDictionaryPanel', () => {
 
 	it('结果达到上限时展示截断提示', () => {
 		const { container, findButton } = openPanel({ limit: 2 });
-		searchChineseMock.mockReturnValue([
+		searchDictionaryMock.mockReturnValue([
 			createForgetMatch(),
 			createGovernmentMatch(),
 		]);
@@ -226,7 +226,7 @@ describe('查词结果分页', () => {
 	function searchTwelveMatches(
 		panel: ReturnType<typeof openPanel>,
 	): StubElementLike {
-		searchChineseMock.mockReturnValue(createMatches(12));
+		searchDictionaryMock.mockReturnValue(createMatches(12));
 		const input = findInput(panel.container);
 		input.value = '政府';
 		panel.findButton('查询')?.trigger('click');
@@ -357,5 +357,48 @@ describe('查词结果分页', () => {
 			el.classes.has('en-dict-row'),
 		);
 		expect(rows).toHaveLength(10);
+	});
+});
+
+describe('写作查词面板（双向查询改造）', () => {
+	it('面板标题为「写作查词」', () => {
+		const { container } = openPanel();
+		const summary = container.queryAll((el) => el.tag === 'summary')[0];
+		expect(summary?.text).toBe('写作查词');
+	});
+
+	it('英文查询命中带词形变换的词条时渲染词形变换行', () => {
+		const { container, findButton } = openPanel();
+		searchDictionaryMock.mockReturnValue([
+			{
+				word: 'be',
+				phonetic: 'bi:',
+				senses: [{ p: 'v.', z: '是, 表示, 在' }],
+				exchange: 'p:was/3:is/d:been/i:being',
+				matchType: 0,
+			},
+		]);
+		const input = findInput(container);
+		input.value = 'be';
+		findButton('查询')?.trigger('click');
+
+		const forms = container.queryAll((el) =>
+			el.classes.has('en-dict-forms'),
+		);
+		expect(forms).toHaveLength(1);
+		expect(forms[0]?.children.map((child) => child.text).join(' ')).toContain('过去式 was');
+		expect(forms[0]?.children.map((child) => child.text).join(' ')).toContain('过去分词 been');
+	});
+
+	it('无词形变换数据的候选不渲染词形变换行', () => {
+		const { container, findButton } = openPanel();
+		searchDictionaryMock.mockReturnValue([createForgetMatch()]);
+		const input = findInput(container);
+		input.value = '忘记';
+		findButton('查询')?.trigger('click');
+
+		expect(
+			container.queryAll((el) => el.classes.has('en-dict-forms')),
+		).toHaveLength(0);
 	});
 });

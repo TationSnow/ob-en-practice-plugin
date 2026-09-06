@@ -11,7 +11,7 @@
 import dictionaryText from '../data/dictionary.txt';
 import {
 	parseDictionaryText,
-	searchInEntries,
+	searchDictionary as searchDictionaryInEntries,
 } from './lookup';
 import type { DictionaryEntry, DictionaryMatch, SearchOptions } from './types';
 
@@ -27,14 +27,16 @@ function getEntries(): DictionaryEntry[] {
 }
 
 /**
- * 查询中文词对应的英文候选（词典本地查询，确定性结果，无网络与 AI 延迟）。
- * @param query 中文查询词
+ * 词典查询总入口（方向自动检测）：含汉字按中文释义查英文候选；
+ * 纯英文按单词形态匹配（精确/通配符/前缀/包含/模糊），用于验证拼写
+ * 与查看词性释义。本地查询，确定性结果，无网络与 AI 延迟。
+ * @param query 用户输入（中文词或英文单词，英文可含 `l_n`/`l?n` 类通配符）
  * @param options 查询选项（候选上限等）
  * @returns 按词聚合的候选列表
  */
-export function searchChinese(
+export function searchDictionary(
 	query: string,
 	options?: SearchOptions,
 ): DictionaryMatch[] {
-	return searchInEntries(query, getEntries(), options);
+	return searchDictionaryInEntries(query, getEntries(), options);
 }

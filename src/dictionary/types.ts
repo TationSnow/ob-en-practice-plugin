@@ -32,8 +32,13 @@ export interface DictionaryEntry {
 	e?: string;
 }
 
-/** 查询匹配类型：0 释义精确命中 / 1 释义前缀命中 / 2 释义包含命中 */
-export type DictionaryMatchType = 0 | 1 | 2;
+/**
+ * 查询匹配类型（数值序即排序序，数值越小越靠前）。
+ * - 中译英方向（中文释义匹配）：0 释义精确命中 / 1 释义前缀命中 / 2 释义包含命中；
+ * - 英查词方向（单词形态匹配）：0 词形精确命中（忽略大小写）/ 1 通配符整词命中 /
+ *   2 前缀命中 / 3 包含命中 / 4 模糊命中（编辑距离容错）。
+ */
+export type DictionaryMatchType = 0 | 1 | 2 | 3 | 4;
 
 /** 查询结果候选（按词聚合，多义组完整展示） */
 export interface DictionaryMatch {

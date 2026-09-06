@@ -250,8 +250,32 @@ function renderTranslationQuestion(
 		});
 		userInput.addClass('en-text-input');
 
-		// 评估按钮置于输入框与查词面板之间：查词后无需滚动或收起面板即可评估
+		// 语法分析按钮在最左、评估翻译在右（配合容器右对齐与间距样式）：
+		// 就地分析用户自己翻译的英文句子（复用语法分析模块的分句/routed
+		// 分析/结果渲染共用流程），结果与评估结果互斥展示
 		const actionContainer = card.createDiv('en-card-actions');
+		createActionButton(
+			actionContainer,
+			'语法分析',
+			async () => {
+				const userTranslation = userInput.value.trim();
+				if (!userTranslation) {
+					new Notice('请输入你的翻译');
+					return;
+				}
+				resultArea.empty();
+				resultArea.removeClass('is-hidden');
+				const grammarStatus = createStatusLine(resultArea);
+				grammarStatus.show();
+				await runGrammarAnalysis({
+					plugin,
+					input: userTranslation,
+					status: grammarStatus,
+					resultList: resultArea,
+				});
+			},
+			{ icon: 'wand-2', variant: 'secondary' },
+		);
 		createActionButton(
 			actionContainer,
 			'评估翻译',
@@ -288,35 +312,10 @@ function renderTranslationQuestion(
 			{ icon: 'check', variant: 'primary' },
 		);
 
-		// 语法分析按钮：就地分析用户自己翻译的英文句子（复用语法分析模块的
-		// 分句/routed 分析/结果渲染共用流程），结果与评估结果互斥展示
-		createActionButton(
-			actionContainer,
-			'语法分析',
-			async () => {
-				const userTranslation = userInput.value.trim();
-				if (!userTranslation) {
-					new Notice('请输入你的翻译');
-					return;
-				}
-				resultArea.empty();
-				resultArea.removeClass('is-hidden');
-				const grammarStatus = createStatusLine(resultArea);
-				grammarStatus.show();
-				await runGrammarAnalysis({
-					plugin,
-					input: userTranslation,
-					status: grammarStatus,
-					resultList: resultArea,
-				});
-			},
-			{ icon: 'wand-2', variant: 'secondary' },
-		);
-
-		// 中译英查词：写作中突然忘记某个中文词的英文拼写时就地查询，
-		// 候选词（含词性/释义/音标）可一键插入本输入框光标处，
-		// 避免切去其他词典页面产生分心（词典本地查询，确定性结果）；
-		// 置于卡片层级（评估按钮之后），与相邻区块共享卡片统一间距
+		// 写作查词：写作中忘记某个中文词的英文拼写，或想验证想到的英文单词时，
+		// 就地双向查询（候选词含词性/释义/音标/词形变换），可一键插入本输入框
+		// 光标处，避免切去其他词典页面产生分心（词典本地查询，确定性结果）；
+		// 置于卡片层级（按钮区之后），与相邻区块共享卡片统一间距
 		createDictionaryPanel(card, {
 			onInsert: (word) => insertTextAtCursor(userInput, word),
 		});

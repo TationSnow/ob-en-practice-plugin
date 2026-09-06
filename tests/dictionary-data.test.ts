@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseDictionaryText, searchInEntries } from '../src/dictionary/lookup';
+import {
+	parseDictionaryText,
+	searchEnglishEntries,
+	searchInEntries,
+} from '../src/dictionary/lookup';
 
 /**
  * 真实数据黄金用例：直读构建产物（src/data/dictionary.txt，已提交入库），
@@ -64,6 +68,30 @@ describe('真实词典数据黄金用例', () => {
 		const startedAt = Date.now();
 		searchInEntries('快乐', entries);
 		const elapsed = Date.now() - startedAt;
+		expect(elapsed).toBeLessThan(2000);
+	});
+
+	it('英文模糊容错：goverment（缺 n）命中 government', () => {
+		const gov = searchEnglishEntries('goverment', entries).find(
+			(match) => match.word === 'government',
+		);
+		expect(gov?.matchType).toBe(4);
+		expect(gov?.senses[0]?.z).toContain('政府');
+	});
+
+	it('英文通配符：l*n 命中 lean 与 location（骨架匹配）', () => {
+		const words = searchEnglishEntries('l*n', entries, { limit: 20 }).map(
+			(match) => match.word,
+		);
+		expect(words).toContain('lean');
+		expect(words).toContain('location');
+	});
+
+	it('英文通配符性能冒烟：通配正则全库扫描在毫秒级完成', () => {
+		const startedAt = Date.now();
+		const matches = searchEnglishEntries('l*n', entries);
+		const elapsed = Date.now() - startedAt;
+		expect(matches.length).toBeLessThanOrEqual(20);
 		expect(elapsed).toBeLessThan(2000);
 	});
 });

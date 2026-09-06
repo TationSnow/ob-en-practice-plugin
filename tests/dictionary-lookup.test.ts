@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { parseDictionaryText, searchInEntries } from '../src/dictionary/lookup';
+import {
+	formatWordForms,
+	isChineseQuery,
+	parseDictionaryText,
+	searchDictionary,
+	searchEnglishEntries,
+	searchInEntries,
+} from '../src/dictionary/lookup';
 import type { DictionaryEntry } from '../src/dictionary/types';
 
 /** 构造词典条目 */
@@ -48,6 +55,37 @@ const FIXTURES: DictionaryEntry[] = [
 			{ p: 'n.', z: '管理, 支配' },
 		],
 		b: 124,
+	}),
+	createEntry({
+		w: 'lean',
+		s: [{ p: 'v.', z: '倾斜, 倚靠' }],
+		b: 3000,
+	}),
+	createEntry({
+		w: 'loan',
+		s: [{ p: 'n.', z: '贷款, 借出' }],
+		b: 2500,
+	}),
+	createEntry({
+		w: 'location',
+		s: [{ p: 'n.', z: '位置, 地点' }],
+		b: 600,
+	}),
+	createEntry({
+		w: 'line',
+		s: [{ p: 'n.', z: '线, 行' }],
+		b: 400,
+	}),
+	createEntry({
+		w: 'discover',
+		s: [{ p: 'v.', z: '发现, 找到' }],
+		f: 1200,
+	}),
+	createEntry({
+		w: 'be',
+		s: [{ p: 'v.', z: '是, 表示, 在' }],
+		b: 2,
+		e: 'p:was/3:is/d:been/i:being',
 	}),
 ];
 
@@ -129,5 +167,130 @@ describe('searchInEntries', () => {
 
 	it('未命中返回空数组', () => {
 		expect(searchInEntries('不存在的释义', FIXTURES)).toEqual([]);
+	});
+});
+
+describe('isChineseQuery（方向自动检测）', () => {
+	it('含汉字判为中译英方向', () => {
+		expect(isChineseQuery('政府')).toBe(true);
+		expect(isChineseQuery('快乐happy')).toBe(true);
+	});
+
+	it('纯英文/通配符查询判为英查词方向', () => {
+		expect(isChineseQuery('happy')).toBe(false);
+		expect(isChineseQuery('l_n')).toBe(false);
+		expect(isChineseQuery("fә'get")).toBe(false);
+	});
+});
+
+describe('searchEnglishEntries（英查词）', () => {
+	it('词形精确命中忽略大小写（matchType 0）', () => {
+		const matches = searchEnglishEntries('HaPpY', FIXTURES);
+		expect(matches[0]?.word).toBe('happy');
+		expect(matches[0]?.matchType).toBe(0);
+		// 单词命中的候选完整展示其全部词性释义组
+		expect(matches[0]?.senses).toEqual(FIXTURES[0]?.s);
+	});
+
+	it('前缀命中排在包含命中之前', () => {
+		const matches = searchEnglishEntries('govern', FIXTURES);
+		expect(matches[0]?.word).toBe('government');
+		expect(matches[0]?.matchType).toBe(2);
+		// discover 的「发现」释义不含 govern，但 discover 包含子串 govern？不含——不应命中
+		expect(matches.map((match) => match.word)).not.toContain('discover');
+	});
+
+	it('包含命中兜底', () => {
+		const matches = searchEnglishEntries('over', FIXTURES);
+		const words = matches.map((match) => match.word);
+		expect(words).toContain('government');
+		expect(words).toContain('discover');
+		// 同为包含命中时按词频排名升序（government bnc 124 优于 discover frq 1200）
+		expect(words[0]).toBe('government');
+	});
+
+	it('通配符下划线按任意长度匹配（l_n → lean/location 等 l…n 词）', () => {
+		const words = searchEnglishEntries('l_n', FIXTURES).map(
+			(match) => match.word,
+		);
+		expect(words).toContain('lean');
+		expect(words).toContain('loan');
+		expect(words).toContain('location');
+		// line 以 e 结尾，不满足 l…n 骨架
+		expect(words).not.toContain('line');
+		// 全部为通配符命中（matchType 1）
+		const matches = searchEnglishEntries('l_n', FIXTURES);
+		expect(matches.every((match) => match.matchType === 1)).toBe(true);
+		// 同级按词频排名升序（location bnc 600 最靠前）
+		expect(words[0]).toBe('location');
+	});
+
+	it('通配符问号匹配恰好一个字符（l?an → lean/loan，不含 location）', () => {
+		const words = searchEnglishEntries('l?an', FIXTURES).map(
+			(match) => match.word,
+		);
+		expect(words).toContain('lean');
+		expect(words).toContain('loan');
+		expect(words).not.toContain('location');
+	});
+
+	it('模糊命中容错拼写错误（matchType 4）', () => {
+		const matches = searchEnglishEntries('happi', FIXTURES);
+		const happy = matches.find((match) => match.word === 'happy');
+		expect(happy?.matchType).toBe(4);
+		// goverment（9 字母，缺一个 n）→ government
+		const gov = searchEnglishEntries('goverment', FIXTURES).find(
+			(match) => match.word === 'government',
+		);
+		expect(gov?.matchType).toBe(4);
+	});
+
+	it('短查询不启用模糊匹配，避免噪音', () => {
+		// bx 与 be 编辑距离 1，但长度 2 不启用模糊；若无该限制 be 会被误召回
+		expect(searchEnglishEntries('bx', FIXTURES)).toEqual([]);
+	});
+
+	it('匹配类型数值序即排序序：精确先于模糊', () => {
+		// be 精确命中（bnc 2），同时 beb/bees 类模糊词不存在时不影响首位
+		const matches = searchEnglishEntries('be', FIXTURES);
+		expect(matches[0]?.word).toBe('be');
+		expect(matches[0]?.matchType).toBe(0);
+	});
+
+	it('按 limit 截断', () => {
+		const matches = searchEnglishEntries('l', FIXTURES, { limit: 3 });
+		expect(matches.length).toBeLessThanOrEqual(3);
+	});
+});
+
+describe('searchDictionary（方向自动分派）', () => {
+	it('中文查询走释义匹配', () => {
+		const matches = searchDictionary('政府', FIXTURES);
+		expect(matches[0]?.word).toBe('government');
+	});
+
+	it('英文查询走单词匹配', () => {
+		const matches = searchDictionary('happy', FIXTURES);
+		expect(matches[0]?.word).toBe('happy');
+		expect(matches[0]?.matchType).toBe(0);
+	});
+});
+
+describe('formatWordForms（词形变换展示）', () => {
+	it('按规范顺序翻译编码为中文标签', () => {
+		expect(formatWordForms('p:was/3:is/d:been/i:being')).toBe(
+			'过去式 was · 过去分词 been · 现在分词 being · 三单 is',
+		);
+	});
+
+	it('比较级与最高级', () => {
+		expect(formatWordForms('r:happier/t:happiest')).toBe(
+			'比较级 happier · 最高级 happiest',
+		);
+	});
+
+	it('空串与未知编码安全处理', () => {
+		expect(formatWordForms('')).toBe('');
+		expect(formatWordForms('x:unknown')).toBe('');
 	});
 });

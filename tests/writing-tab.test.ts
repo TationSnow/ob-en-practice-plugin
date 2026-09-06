@@ -230,3 +230,23 @@ describe('renderWritingPractice（翻译写作页集成）', () => {
 		expect(tab.hasText('评估结果')).toBe(false);
 	});
 });
+
+describe('评估与语法分析按钮布局', () => {
+	it('语法分析在最左、评估翻译在最右（需求回归：按钮间距与顺序）', async () => {
+		const tab = openWritingTab();
+		tab.findButton('生成题目')?.trigger('click');
+		await flush();
+
+		const actionContainer = tab.container.queryAll((el) =>
+			el.classes.has('en-card-actions'),
+		)[0];
+		if (!actionContainer) throw new Error('未找到操作按钮容器');
+
+		// 创建顺序决定视觉顺序（容器右对齐）：语法分析在左、评估翻译在右
+		const buttons = actionContainer.children.filter(
+			(el) => el.tag === 'button',
+		);
+		expect(buttons[0]?.attrs['aria-label']).toBe('语法分析');
+		expect(buttons.at(-1)?.attrs['aria-label']).toBe('评估翻译');
+	});
+});

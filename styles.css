@@ -414,6 +414,8 @@
 .en-card-actions {
 	display: flex;
 	justify-content: flex-end;
+	/* 多个操作按钮之间保持统一间距，避免相互贴靠 */
+	gap: var(--size-4-2);
 }
 
 /* ===== 中文翻译 ===== */
@@ -1137,6 +1139,25 @@
 }
 
 .en-dict-gloss {
+	flex: 1;
+	min-width: 0;
+}
+
+/* 词形变换行（英文查词结果）：过去式/复数等变形展示 */
+.en-dict-forms {
+	display: flex;
+	gap: var(--size-4-2);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	line-height: var(--line-height-normal);
+}
+
+.en-dict-forms-label {
+	flex-shrink: 0;
+	color: var(--text-faint);
+}
+
+.en-dict-forms-text {
 	flex: 1;
 	min-width: 0;
 }
