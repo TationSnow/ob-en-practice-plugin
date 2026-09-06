@@ -1,4 +1,4 @@
-import type { ComponentType, SentenceComponent } from '../types';
+import type { ComponentType, GrammarResult, SentenceComponent } from '../types';
 import {
 	buildRenderItems,
 	findPredicateVerbRange,
@@ -6,6 +6,11 @@ import {
 	type RenderItem,
 } from '../utils/grammar-highlight';
 import { findComponentSpan, splitSentences } from '../utils/sentence';
+import {
+	createResultCard,
+	createResultSection,
+	createTag,
+} from './sections';
 
 /** 成分类型对应的 CSS 类名 */
 export const COMPONENT_CSS_CLASS: Record<ComponentType, string> = {
@@ -302,4 +307,98 @@ function appendComponentSpan(
 	clauses: { text: string; level: number }[],
 ): void {
 	renderComponentNested(container, text, component, clauses);
+}
+
+/**
+ * 渲染语法分析结果卡片（语法分析页与翻译写作页共用）。
+ * @param container 结果列表容器
+ * @param result 分析结果
+ * @param originalSentence 用户输入的原句
+ * @param index 当前句子序号（从 1 开始）
+ * @param total 本次分析的句子总数
+ */
+export function renderGrammarResult(
+	container: HTMLElement,
+	result: GrammarResult,
+	originalSentence: string,
+	index: number,
+	total: number,
+): void {
+	const card = createResultCard(
+		container,
+		total > 1 ? `第 ${index} 句` : undefined,
+	);
+
+	// 顶部标签快速展示时态、语态与句型
+	const tagRow = card.createDiv('en-tag-row');
+	for (const tense of result.tense) {
+		createTag(tagRow, tense, 'accent');
+	}
+	createTag(tagRow, result.voice, 'neutral');
+	createTag(tagRow, result.sentenceType, 'success');
+
+	// 中文翻译：先理解句意，再阅读结构分析
+	const translationSection = createResultSection(card, '中文翻译');
+	translationSection
+		.createEl('p', { text: result.translation })
+		.addClass('en-translation-text');
+
+	// 带成分与从句标注的句子展示
+	const sentenceSection = createResultSection(card, '句子成分标注');
+	renderHighlightedSentence(
+		sentenceSection,
+		originalSentence || result.sentence,
+		result.components,
+		result.clauses,
+	);
+
+	// 分句结构：按层级缩进展示主句与从句
+	const clauseSection = createResultSection(card, '分句结构');
+	const clauseList = clauseSection.createEl('ol', { attr: { role: 'list' } });
+	clauseList.addClass('en-clause-list');
+	for (const clause of result.clauses) {
+		const item = clauseList.createEl('li');
+		item.addClass(`en-clause-depth-${Math.min(clause.level, 4)}`);
+		item.createSpan('en-clause-type').setText(clause.type);
+		item.createSpan('en-clause-text').setText(clause.text);
+		if (clause.function) {
+			item.createSpan('en-clause-function').setText(
+				`（${clause.function}）`,
+			);
+		}
+	}
+
+	// 成分明细：展示完整片段、类型与内部结构说明
+	const detailSection = createResultSection(card, '成分明细');
+	const componentTable = detailSection.createEl('table');
+	componentTable.addClass('en-info-table');
+	for (const component of result.components) {
+		const tr = componentTable.createEl('tr');
+		tr.createEl('td', { text: component.text });
+		tr.createEl('td', {
+			text: COMPONENT_LABELS[component.type],
+		}).addClass('en-component-type');
+		tr.createEl('td', {
+			text: component.details ?? '—',
+		}).addClass('en-component-details');
+	}
+
+	// 语法信息总览
+	const infoSection = createResultSection(card, '语法信息');
+	const table = infoSection.createEl('table');
+	table.addClass('en-info-table');
+
+	const rows: [string, string][] = [
+		['时态', result.tense.join('、')],
+		['语态', result.voice],
+		['语气', result.mood],
+		['句型', result.sentenceType],
+		['结构概括', result.structureSummary],
+	];
+
+	for (const [label, value] of rows) {
+		const tr = table.createEl('tr');
+		tr.createEl('td', { text: label }).addClass('en-info-label');
+		tr.createEl('td', { text: value });
+	}
 }

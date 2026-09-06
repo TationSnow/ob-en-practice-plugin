@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-	createModelQuickSelect,
-	formatModelBadgeText,
-} from '../src/ui/model-controls';
+import { createModelQuickSelect } from '../src/ui/model-controls';
 import { DEFAULT_SETTINGS } from '../src/settings';
 import type { EnPracticeSettings } from '../src/settings';
 import type { ModelProfile } from '../src/settings/models';
@@ -62,24 +59,6 @@ async function flush(): Promise<void> {
 
 beforeEach(() => {
 	resetRecordedMocks();
-});
-
-describe('formatModelBadgeText', () => {
-	it('有激活档位时显示“已连接 · 档位名”', () => {
-		expect(formatModelBadgeText(createSettings())).toBe(
-			'已连接 · 本地 LM Studio',
-		);
-	});
-
-	it('无任何档位时仅显示“已连接”', () => {
-		expect(formatModelBadgeText(createSettings([], ''))).toBe('已连接');
-	});
-
-	it('激活标识为空时回退显示首个档位（与实际请求使用的档位一致）', () => {
-		expect(formatModelBadgeText(createSettings(undefined, ''))).toBe(
-			'已连接 · 本地 LM Studio',
-		);
-	});
 });
 
 describe('createModelQuickSelect', () => {

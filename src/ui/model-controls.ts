@@ -1,9 +1,6 @@
 import { Notice } from 'obsidian';
 import type EnPracticePlugin from '../main';
-import {
-	getActiveModelProfile,
-	type GlobalModelDefaults,
-} from '../settings/models';
+import { getActiveModelProfile } from '../settings/models';
 import { createIconButton } from './controls';
 import { openModelManager } from './model-modal';
 
@@ -14,18 +11,10 @@ export interface ModelQuickSelectControl {
 }
 
 /**
- * @param settings 全局设置
- * @returns 徽章文案
- */
-export function formatModelBadgeText(settings: GlobalModelDefaults): string {
-	return '已连接';
-}
-
-/**
  * 创建面板头部的模型快速切换下拉与“管理接入口”按钮。
  * 切换时直接保存插件数据（不走 saveSettings），不触发面板整页重渲染，
  * 避免清空用户已输入的内容；保存后通过 notifyActiveModelChanged
- * 通知插件同步连接徽章等面板状态。
+ * 通知插件同步面板状态（如刷新本下拉的选项）。
  * @param container 父容器（面板头部）
  * @param plugin 插件实例
  * @returns 快速切换控件控制器
@@ -68,7 +57,7 @@ export function createModelQuickSelect(
 		}
 		plugin.settings.activeModelId = profile.id;
 		void plugin.saveData(plugin.settings).then(() => {
-			// 通知插件同步面板状态（连接徽章等），与设置弹窗内的切换行为保持一致
+			// 通知插件同步面板状态（快速切换下拉选项等），与设置弹窗内的切换行为保持一致
 			plugin.notifyActiveModelChanged();
 			new Notice(`已切换至 ${profile.name}`);
 		});

@@ -28,9 +28,12 @@ import {
 } from './sections';
 import { createStatusLine } from './status';
 import { createWorkflowStepper } from './workflow';
+import { createDictionaryPanel } from './dictionary-panel';
+import { runGrammarAnalysis } from './grammar-analysis-runner';
 import { createSeedField, createThemeSelect } from './writing-controls';
 import { onGrammarReference } from './panel-events';
 import { getScoreClass } from '../utils/score';
+import { insertTextAtCursor } from '../utils/editor';
 
 /** 当前题目与流程状态 */
 interface WritingState {
@@ -120,13 +123,15 @@ export function renderWritingPractice(
 
 	const generateStatus = createStatusLine(root);
 
-	// 题目与评估结果容器（初始隐藏）
+	// 题目卡片容器（每次生成题目后重建）
 	const questionArea = root.createDiv('en-result-list');
 	questionArea.id = 'en-writing-question';
 	questionArea.addClass('is-hidden');
-	const evalArea = root.createDiv('en-result-list');
-	evalArea.id = 'en-writing-evaluation';
-	evalArea.addClass('is-hidden');
+
+	// 结果区：评估结果与语法分析共用（后一次分析替换前一次，二者互斥展示）
+	const resultArea = root.createDiv('en-result-list');
+	resultArea.id = 'en-writing-evaluation';
+	resultArea.addClass('is-hidden');
 
 	/** 生成一道翻译练习题 */
 	async function runGenerate(): Promise<void> {
@@ -151,7 +156,7 @@ export function renderWritingPractice(
 			state.question = question;
 			renderTranslationQuestion(
 				questionArea,
-				evalArea,
+				resultArea,
 				question,
 				state.difficulty,
 				plugin,
@@ -161,8 +166,9 @@ export function renderWritingPractice(
 				reference,
 			);
 			setStep(1);
-			generateStatus.setState('success');
-			generateStatus.setText('题目已生成');
+			// 新题目已完整呈现，状态条不再追加“题目已生成”提示
+			generateStatus.clear();
+			generateStatus.hide();
 		} catch (err) {
 			generateStatus.setState('error');
 			const message = err instanceof Error ? err.message : '未知错误';
@@ -185,7 +191,7 @@ export function renderWritingPractice(
 /**
  * 渲染翻译题目。
  * @param questionArea 题目容器
- * @param evalArea 评估结果容器
+ * @param resultArea 结果区容器（评估结果与语法分析共用，互斥展示）
  * @param question 题目
  * @param difficulty 难度级别
  * @param plugin 插件实例
@@ -196,7 +202,7 @@ export function renderWritingPractice(
  */
 function renderTranslationQuestion(
 	questionArea: HTMLElement,
-	evalArea: HTMLElement,
+	resultArea: HTMLElement,
 	question: TranslationQuestion,
 	difficulty: Difficulty,
 	plugin: EnPracticePlugin,
@@ -207,6 +213,10 @@ function renderTranslationQuestion(
 ): void {
 	questionArea.empty();
 	questionArea.removeClass('is-hidden');
+
+	// 重新生成题目时关闭上一题遗留的结果面板（评估结果/语法分析）
+	resultArea.empty();
+	resultArea.addClass('is-hidden');
 
 	const card = createResultCard(questionArea, '题目');
 
@@ -229,54 +239,87 @@ function renderTranslationQuestion(
 		createTag(tagRow, question.targetGrammar, 'accent');
 	}
 
-	// 用户翻译输入
-	const inputSection = createResultSection(card, '你的翻译');
-	const userInput = inputSection.createEl('textarea', {
-		attr: {
-			'aria-label': '你的翻译',
-			placeholder: '输入你的翻译...',
-			rows: '3',
-		},
-	});
-	userInput.addClass('en-text-input');
+		// 用户翻译输入
+		const inputSection = createResultSection(card, '你的翻译');
+		const userInput = inputSection.createEl('textarea', {
+			attr: {
+				'aria-label': '你的翻译',
+				placeholder: '输入你的翻译...',
+				rows: '3',
+			},
+		});
+		userInput.addClass('en-text-input');
 
-	const actionContainer = card.createDiv('en-card-actions');
-	createActionButton(
-		actionContainer,
-		'评估翻译',
-		async () => {
-			const userTranslation = userInput.value.trim();
-			if (!userTranslation) {
-				new Notice('请输入你的翻译');
-				return;
-			}
-			evalArea.empty();
-			evalArea.removeClass('is-hidden');
-			const evalStatus = createStatusLine(evalArea);
-			evalStatus.setState('loading');
-			evalStatus.setText('正在评估…');
-			evalStatus.show();
-			try {
-				const result = await evaluateTranslation(
-					question.chinese,
-					userTranslation,
-					reference,
-					difficulty,
-					plugin.settings,
-					{ debug: plugin.settings.debugMode },
-				);
-				renderEvaluation(evalArea, result);
-				setStep(2);
-			} catch (err) {
-				evalStatus.setState('error');
-				const message = err instanceof Error ? err.message : '未知错误';
-				evalStatus.setText(`评估失败：${message}`);
-				new Notice(`评估失败：${message}`);
-			}
-		},
-		{ icon: 'check', variant: 'primary' },
-	);
-}
+		// 语法分析按钮在最左、评估翻译在右（配合容器右对齐与间距样式）：
+		// 就地分析用户自己翻译的英文句子（复用语法分析模块的分句/routed
+		// 分析/结果渲染共用流程），结果与评估结果互斥展示
+		const actionContainer = card.createDiv('en-card-actions');
+		createActionButton(
+			actionContainer,
+			'语法分析',
+			async () => {
+				const userTranslation = userInput.value.trim();
+				if (!userTranslation) {
+					new Notice('请输入你的翻译');
+					return;
+				}
+				resultArea.empty();
+				resultArea.removeClass('is-hidden');
+				const grammarStatus = createStatusLine(resultArea);
+				grammarStatus.show();
+				await runGrammarAnalysis({
+					plugin,
+					input: userTranslation,
+					status: grammarStatus,
+					resultList: resultArea,
+				});
+			},
+			{ icon: 'wand-2', variant: 'secondary' },
+		);
+		createActionButton(
+			actionContainer,
+			'评估翻译',
+			async () => {
+				const userTranslation = userInput.value.trim();
+				if (!userTranslation) {
+					new Notice('请输入你的翻译');
+					return;
+				}
+				resultArea.empty();
+				resultArea.removeClass('is-hidden');
+				const evalStatus = createStatusLine(resultArea);
+				evalStatus.setState('loading');
+				evalStatus.setText('正在评估…');
+				evalStatus.show();
+				try {
+					const result = await evaluateTranslation(
+						question.chinese,
+						userTranslation,
+						reference,
+						difficulty,
+						plugin.settings,
+						{ debug: plugin.settings.debugMode },
+					);
+					renderEvaluation(resultArea, result);
+					setStep(2);
+				} catch (err) {
+					evalStatus.setState('error');
+					const message = err instanceof Error ? err.message : '未知错误';
+					evalStatus.setText(`评估失败：${message}`);
+					new Notice(`评估失败：${message}`);
+				}
+			},
+			{ icon: 'check', variant: 'primary' },
+		);
+
+		// 写作查词：写作中忘记某个中文词的英文拼写，或想验证想到的英文单词时，
+		// 就地双向查询（候选词含词性/释义/音标/词形变换），可一键插入本输入框
+		// 光标处，避免切去其他词典页面产生分心（词典本地查询，确定性结果）；
+		// 置于卡片层级（按钮区之后），与相邻区块共享卡片统一间距
+		createDictionaryPanel(card, {
+			onInsert: (word) => insertTextAtCursor(userInput, word),
+		});
+	}
 
 /**
  * 渲染评估结果。

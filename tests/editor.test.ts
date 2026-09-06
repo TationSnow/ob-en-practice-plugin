@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { type App, MarkdownView, type WorkspaceLeaf } from 'obsidian';
 import {
 	getActiveSelection,
+	insertTextAtCursor,
 	trackDomSelection,
 } from '../src/utils/editor';
 
@@ -88,5 +89,47 @@ describe('getActiveSelection', () => {
 		} as unknown as App;
 
 		expect(getActiveSelection(app)).toBe('selected pdf text');
+	});
+});
+
+describe('insertTextAtCursor', () => {
+	/** 构造可断言的最小 textarea 桩（返回捕获的侦听器便于断言） */
+	function createTextareaStub(value: string, start: number, end: number) {
+		const setSelectionRange = vi.fn(function (this: {
+			selectionStart: number;
+			selectionEnd: number;
+		}, caretStart: number) {
+			this.selectionStart = caretStart;
+			this.selectionEnd = caretStart;
+		});
+		const focus = vi.fn();
+		const textarea = {
+			value,
+			selectionStart: start,
+			selectionEnd: end,
+			setSelectionRange,
+			focus,
+		} as unknown as HTMLTextAreaElement;
+		return { textarea, setSelectionRange, focus };
+	}
+
+	it('在光标处插入文本并追加尾随空格，光标移至插入末尾', () => {
+		const { textarea, setSelectionRange, focus } = createTextareaStub('I ', 2, 2);
+		insertTextAtCursor(textarea, 'forget');
+		expect(textarea.value).toBe('I forget ');
+		expect(setSelectionRange).toHaveBeenCalledWith(9, 9);
+		expect(focus).toHaveBeenCalled();
+	});
+
+	it('存在选区时替换选区内容', () => {
+		const { textarea } = createTextareaStub('I forget you', 2, 8);
+		insertTextAtCursor(textarea, 'remember');
+		expect(textarea.value).toBe('I remember  you');
+	});
+
+	it('插入的文本自动去除首尾空白', () => {
+		const { textarea } = createTextareaStub('', 0, 0);
+		insertTextAtCursor(textarea, '  happy  ');
+		expect(textarea.value).toBe('happy ');
 	});
 });

@@ -69,6 +69,15 @@ const { StubElement } = vi.hoisted(() => {
 			return this;
 		}
 
+		toggleClass(cls: string, force: boolean): this {
+			if (force) {
+				this.classes.add(cls);
+			} else {
+				this.classes.delete(cls);
+			}
+			return this;
+		}
+
 		setText(text: string): this {
 			this.text = text;
 			return this;
@@ -79,17 +88,28 @@ const { StubElement } = vi.hoisted(() => {
 			return this;
 		}
 
+		getAttribute(key: string): string | null {
+			return this.attrs[key] ?? null;
+		}
+
+		removeAttribute(key: string): this {
+			delete this.attrs[key];
+			return this;
+		}
+
 		empty(): void {
 			this.children = [];
+			// 与真实 DOM 一致：empty() 同时移除文本内容
+			this.text = '';
 		}
 
 		addEventListener(type: string, callback: (event?: unknown) => void): void {
 			this.listeners[type] = callback;
 		}
 
-		/** 触发已注册的事件（测试用） */
-		trigger(type: string): void {
-			this.listeners[type]?.();
+		/** 触发已注册的事件（测试用，可携带事件对象） */
+		trigger(type: string, event?: unknown): void {
+			this.listeners[type]?.(event);
 		}
 
 		/** 按谓词查找子孙元素（测试用） */

@@ -34,6 +34,10 @@ const context = await esbuild.context({
 	],
 	format: 'cjs',
 	target: 'es2021',
+	// 词典数据以纯文本内联（运行时懒 JSON.parse），避免 JSON 模块在启动期解析
+	loader: {
+		'.txt': 'text',
+	},
 	logLevel: 'info',
 	sourcemap: prod ? false : 'inline',
 	treeShaking: true,
