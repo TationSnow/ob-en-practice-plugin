@@ -56,31 +56,6 @@
 	text-overflow: ellipsis;
 }
 
-.en-status-badge {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--size-4-1);
-	padding: var(--size-4-1) var(--size-4-2);
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-m);
-	font-size: var(--font-ui-small);
-	color: var(--text-muted);
-	white-space: nowrap;
-}
-
-.en-status-badge.is-ready {
-	color: var(--text-success);
-	border-color: var(--background-modifier-border);
-}
-
-.en-status-badge.is-ready::before {
-	content: '';
-	width: 6px;
-	height: 6px;
-	border-radius: 50%;
-	background: var(--text-success);
-}
-
 /* ===== 页签栏 ===== */
 .en-tab-bar {
 	display: grid;
@@ -795,7 +770,8 @@
 /* ===== 面板头部模型快速切换 ===== */
 .en-model-switch {
 	max-width: 140px;
-	padding: var(--size-4-1) var(--size-4-2);
+	height: 44px;
+	padding: 0 var(--size-4-2);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-s);
 	background: var(--background-primary);
@@ -1171,4 +1147,66 @@
 	color: var(--text-muted);
 	font-size: var(--font-ui-small);
 	line-height: 1.5;
+}
+
+/* 查词输入框与查询按钮高度统一（44px，与全局面板按钮一致） */
+.en-dict-field-row .en-text-input {
+	min-height: 44px;
+	box-sizing: border-box;
+}
+
+/* ===== 查词结果分页 ===== */
+.en-dict-pager {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	flex-wrap: wrap;
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.en-dict-page-info {
+	flex: 1 1 auto;
+	min-width: 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* 分页控件（跳页输入框、每页大小）与分页按钮高度统一为 44px */
+.en-dict-jump-input {
+	width: 72px;
+	height: 44px;
+	padding: 0 var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	box-sizing: border-box;
+}
+
+.en-dict-jump-input:focus {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 3px var(--background-modifier-border-focus);
+	outline: none;
+}
+
+.en-dict-page-size {
+	height: 44px;
+	padding: 0 var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	box-sizing: border-box;
+}
+
+/* 边界页的分页按钮禁用态 */
+.en-dict-pager .en-icon-button[disabled] {
+	opacity: 0.4;
+	cursor: not-allowed;
 }

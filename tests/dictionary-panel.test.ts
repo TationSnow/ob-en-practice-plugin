@@ -49,6 +49,15 @@ function createGovernmentMatch(): DictionaryMatch {
 	};
 }
 
+/** 构造 N 个候选词（word0..wordN-1） */
+function createMatches(count: number): DictionaryMatch[] {
+	return Array.from({ length: count }, (_, index) => ({
+		word: `word${index}`,
+		senses: [{ p: 'n.', z: '政府' }],
+		matchType: 0,
+	}));
+}
+
 /** 创建面板并返回桩容器与查找助手 */
 function openPanel(options: {
 	onInsert?: (word: string) => void;
@@ -209,5 +218,144 @@ describe('createDictionaryPanel', () => {
 			el.classes.has('en-dict-empty'),
 		);
 		expect(hints[0]?.text).toContain('仅显示前 2 条');
+	});
+});
+
+describe('查词结果分页', () => {
+	/** 执行一次返回 12 条候选的查询 */
+	function searchTwelveMatches(
+		panel: ReturnType<typeof openPanel>,
+	): StubElementLike {
+		searchChineseMock.mockReturnValue(createMatches(12));
+		const input = findInput(panel.container);
+		input.value = '政府';
+		panel.findButton('查询')?.trigger('click');
+		return panel.container;
+	}
+
+	/** 查找分页控件元素 */
+	function findPagerInfo(container: StubElementLike): StubElementLike {
+		const info = container.queryAll((el) =>
+			el.classes.has('en-dict-page-info'),
+		)[0];
+		if (!info) {
+			throw new Error('未找到页码信息');
+		}
+		return info;
+	}
+
+	it('默认每页 5 条，渲染首页与页码信息', () => {
+		const panel = openPanel();
+		const container = searchTwelveMatches(panel);
+
+		const rows = container.queryAll((el) =>
+			el.classes.has('en-dict-row'),
+		);
+		expect(rows).toHaveLength(5);
+		expect(findPagerInfo(container).text).toBe('第 1 / 3 页 · 共 12 条');
+		// 首行是第 1 条候选
+		const firstWord = container.queryAll((el) =>
+			el.classes.has('en-dict-word'),
+		)[0];
+		expect(firstWord?.text).toBe('word0');
+	});
+
+	it('下一页渲染第 6-10 条，末页禁用下一页', () => {
+		const panel = openPanel();
+		const container = searchTwelveMatches(panel);
+		panel.findButton('下一页')?.trigger('click');
+
+		const rows = container.queryAll((el) =>
+			el.classes.has('en-dict-row'),
+		);
+		expect(rows).toHaveLength(5);
+		const firstWord = container.queryAll((el) =>
+			el.classes.has('en-dict-word'),
+		)[0];
+		expect(firstWord?.text).toBe('word5');
+		expect(findPagerInfo(container).text).toBe('第 2 / 3 页 · 共 12 条');
+
+		panel.findButton('下一页')?.trigger('click');
+		expect(findPagerInfo(container).text).toBe('第 3 / 3 页 · 共 12 条');
+		const lastRows = container.queryAll((el) =>
+			el.classes.has('en-dict-row'),
+		);
+		expect(lastRows).toHaveLength(2);
+		const nextButton = panel
+			.findButton('下一页');
+		expect(nextButton?.attrs['disabled']).toBe('');
+	});
+
+	it('上一页在首页时禁用，越界页码收敛到首页', () => {
+		const panel = openPanel();
+		const container = searchTwelveMatches(panel);
+
+		const prevButton = panel.findButton('上一页');
+		expect(prevButton?.attrs['disabled']).toBe('');
+		prevButton?.trigger('click');
+		expect(findPagerInfo(container).text).toBe('第 1 / 3 页 · 共 12 条');
+	});
+
+	it('跳转页码越界时收敛到末页', () => {
+		const panel = openPanel();
+		const container = searchTwelveMatches(panel);
+
+		const jumpInput = container.queryAll(
+			(el) => el.classes.has('en-dict-jump-input'),
+		)[0];
+		if (!jumpInput) {
+			throw new Error('未找到跳页输入框');
+		}
+		jumpInput.value = '99';
+		panel.findButton('跳转')?.trigger('click');
+
+		expect(findPagerInfo(container).text).toBe('第 3 / 3 页 · 共 12 条');
+		const rows = container.queryAll((el) =>
+			el.classes.has('en-dict-row'),
+		);
+		expect(rows).toHaveLength(2);
+	});
+
+	it('调整每页大小后回到第一页', () => {
+		const panel = openPanel();
+		const container = searchTwelveMatches(panel);
+
+		const sizeSelect = container.queryAll(
+			(el) => el.classes.has('en-dict-page-size'),
+		)[0];
+		if (!sizeSelect) {
+			throw new Error('未找到每页大小选择器');
+		}
+		sizeSelect.value = '10';
+		sizeSelect.trigger('change');
+
+		const rows = container.queryAll((el) =>
+			el.classes.has('en-dict-row'),
+		);
+		expect(rows).toHaveLength(10);
+		expect(findPagerInfo(container).text).toBe('第 1 / 2 页 · 共 12 条');
+	});
+
+	it('新查询重置页码但保留每页大小', () => {
+		const panel = openPanel();
+		const container = searchTwelveMatches(panel);
+		panel.findButton('下一页')?.trigger('click');
+
+		// 调整每页大小到 10，再发起一次新查询
+		const sizeSelect = container.queryAll(
+			(el) => el.classes.has('en-dict-page-size'),
+		)[0];
+		if (!sizeSelect) throw new Error('未找到每页大小选择器');
+		sizeSelect.value = '10';
+		sizeSelect.trigger('change');
+		const input = findInput(container);
+		input.value = '翻译';
+		panel.findButton('查询')?.trigger('click');
+
+		expect(findPagerInfo(container).text).toBe('第 1 / 2 页 · 共 12 条');
+		const rows = container.queryAll((el) =>
+			el.classes.has('en-dict-row'),
+		);
+		expect(rows).toHaveLength(10);
 	});
 });

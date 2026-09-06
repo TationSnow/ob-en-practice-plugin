@@ -242,50 +242,52 @@ function renderTranslationQuestion(
 		});
 		userInput.addClass('en-text-input');
 
+		// 评估按钮置于输入框与查词面板之间：查词后无需滚动或收起面板即可评估
+		const actionContainer = card.createDiv('en-card-actions');
+		createActionButton(
+			actionContainer,
+			'评估翻译',
+			async () => {
+				const userTranslation = userInput.value.trim();
+				if (!userTranslation) {
+					new Notice('请输入你的翻译');
+					return;
+				}
+				evalArea.empty();
+				evalArea.removeClass('is-hidden');
+				const evalStatus = createStatusLine(evalArea);
+				evalStatus.setState('loading');
+				evalStatus.setText('正在评估…');
+				evalStatus.show();
+				try {
+					const result = await evaluateTranslation(
+						question.chinese,
+						userTranslation,
+						reference,
+						difficulty,
+						plugin.settings,
+						{ debug: plugin.settings.debugMode },
+					);
+					renderEvaluation(evalArea, result);
+					setStep(2);
+				} catch (err) {
+					evalStatus.setState('error');
+					const message = err instanceof Error ? err.message : '未知错误';
+					evalStatus.setText(`评估失败：${message}`);
+					new Notice(`评估失败：${message}`);
+				}
+			},
+			{ icon: 'check', variant: 'primary' },
+		);
+
 		// 中译英查词：写作中突然忘记某个中文词的英文拼写时就地查询，
 		// 候选词（含词性/释义/音标）可一键插入本输入框光标处，
-		// 避免切去其他词典页面产生分心（词典本地查询，确定性结果）
-		createDictionaryPanel(inputSection, {
+		// 避免切去其他词典页面产生分心（词典本地查询，确定性结果）；
+		// 置于卡片层级（评估按钮之后），与相邻区块共享卡片统一间距
+		createDictionaryPanel(card, {
 			onInsert: (word) => insertTextAtCursor(userInput, word),
 		});
-
-	const actionContainer = card.createDiv('en-card-actions');
-	createActionButton(
-		actionContainer,
-		'评估翻译',
-		async () => {
-			const userTranslation = userInput.value.trim();
-			if (!userTranslation) {
-				new Notice('请输入你的翻译');
-				return;
-			}
-			evalArea.empty();
-			evalArea.removeClass('is-hidden');
-			const evalStatus = createStatusLine(evalArea);
-			evalStatus.setState('loading');
-			evalStatus.setText('正在评估…');
-			evalStatus.show();
-			try {
-				const result = await evaluateTranslation(
-					question.chinese,
-					userTranslation,
-					reference,
-					difficulty,
-					plugin.settings,
-					{ debug: plugin.settings.debugMode },
-				);
-				renderEvaluation(evalArea, result);
-				setStep(2);
-			} catch (err) {
-				evalStatus.setState('error');
-				const message = err instanceof Error ? err.message : '未知错误';
-				evalStatus.setText(`评估失败：${message}`);
-				new Notice(`评估失败：${message}`);
-			}
-		},
-		{ icon: 'check', variant: 'primary' },
-	);
-}
+	}
 
 /**
  * 渲染评估结果。
