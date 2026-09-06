@@ -6,7 +6,7 @@ import { vi } from 'vitest';
  * 供 Modal / PluginSettingTab 桩与 UI 测试共用（不依赖 jsdom）。
  * 通过 vi.hoisted 定义，保证 mock 工厂可以引用。
  */
-const { StubElement } = vi.hoisted(() => {
+	const { StubElement } = vi.hoisted(() => {
 	class StubElement {
 		children: StubElement[] = [];
 		classes = new Set<string>();
@@ -15,6 +15,29 @@ const { StubElement } = vi.hoisted(() => {
 		attrs: Record<string, string> = {};
 		listeners: Record<string, (event?: unknown) => void> = {};
 		value = '';
+		/** 父元素引用（remove 时从父级移除自身） */
+		parent: StubElement | null = null;
+
+		/** 视口矩形（悬浮词卡定位计算用） */
+		getBoundingClientRect(): {
+			left: number;
+			top: number;
+			right: number;
+			bottom: number;
+			width: number;
+			height: number;
+		} {
+			return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+		}
+
+		/** 从父级移除自身（模拟真实 DOM remove） */
+		remove(): void {
+			if (!this.parent) return;
+			this.parent.children = this.parent.children.filter(
+				(child) => child !== this,
+			);
+			this.parent = null;
+		}
 
 		createEl(
 			tag: string,
@@ -33,6 +56,7 @@ const { StubElement } = vi.hoisted(() => {
 					el.attrs[key] = val;
 				}
 			}
+			el.parent = this;
 			this.children.push(el);
 			return el;
 		}
@@ -40,6 +64,7 @@ const { StubElement } = vi.hoisted(() => {
 		createDiv(cls?: string): StubElement {
 			const el = new StubElement();
 			if (cls) el.addClass(cls);
+			el.parent = this;
 			this.children.push(el);
 			return el;
 		}
@@ -55,6 +80,7 @@ const { StubElement } = vi.hoisted(() => {
 				if (clsOrOpts.text) el.text = clsOrOpts.text;
 				if (clsOrOpts.cls) el.addClass(clsOrOpts.cls);
 			}
+			el.parent = this;
 			this.children.push(el);
 			return el;
 		}

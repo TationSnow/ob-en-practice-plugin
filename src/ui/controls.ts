@@ -60,12 +60,19 @@ export function createActionButton(
 	return button;
 }
 
+/** 图标按钮的可选配置 */
+export interface IconButtonOptions {
+	/** 紧凑变体：约 20px 内联尺寸、无边框透明背景，用于标题行内（如播放按钮） */
+	compact?: boolean;
+}
+
 /**
  * 创建一个图标按钮，仅用于工具栏中的高频操作。
  * @param container 父容器
  * @param icon 图标名称
  * @param ariaLabel 无障碍名称与 tooltip
  * @param onClick 点击回调
+ * @param options 可选配置（compact 紧凑变体）
  * @returns 按钮元素
  */
 export function createIconButton(
@@ -73,6 +80,7 @@ export function createIconButton(
 	icon: IconName,
 	ariaLabel: string,
 	onClick: () => void,
+	options: IconButtonOptions = {},
 ): HTMLButtonElement {
 	const button = container.createEl('button', {
 		attr: {
@@ -82,6 +90,9 @@ export function createIconButton(
 		},
 	});
 	button.addClass('en-icon-button');
+	if (options.compact) {
+		button.addClass('en-icon-button--compact');
+	}
 	setIcon(button, icon);
 	button.addEventListener('click', () => onClick());
 	return button;

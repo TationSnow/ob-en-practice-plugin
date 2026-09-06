@@ -227,6 +227,29 @@
 	transition: background 0.15s ease, color 0.15s ease;
 }
 
+/* 紧凑变体：标题行内的朗读等小按钮（约 18px，纯图标扁平化——
+   双类选择器抬高特异性，确保压过基础按钮样式与主题覆盖） */
+.en-icon-button.en-icon-button--compact {
+	width: 18px;
+	height: 18px;
+	min-width: 0;
+	padding: 0;
+	border: none;
+	background: transparent;
+	box-shadow: none;
+	border-radius: var(--radius-s);
+	vertical-align: middle;
+}
+
+.en-icon-button.en-icon-button--compact:hover {
+	background: transparent;
+	color: var(--text-normal);
+}
+
+.en-icon-button.en-icon-button--compact:focus-visible {
+	background: transparent;
+}
+
 .en-icon-button:hover {
 	background: var(--background-modifier-hover);
 	color: var(--text-normal);
@@ -393,6 +416,10 @@
 }
 
 .en-result-section h4 {
+	/* 标题与其行内动作元素（如朗读喇叭）垂直居中对齐 */
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
 	margin: 0 0 var(--size-4-1);
 	font-size: var(--font-ui-small);
 	font-weight: var(--font-semibold);
@@ -1230,4 +1257,91 @@
 .en-dict-pager .en-icon-button[disabled] {
 	opacity: 0.4;
 	cursor: not-allowed;
+}
+
+/* ===== 句子词元（悬浮词卡锚点） ===== */
+.en-word-token {
+	cursor: help;
+	border-radius: var(--radius-s);
+	transition: background 0.1s ease;
+}
+
+.en-word-token:hover {
+	background: var(--background-modifier-hover);
+}
+
+/* ===== 悬浮词卡（单词释义，定位在单词正下方） ===== */
+.en-word-popover {
+	position: fixed;
+	z-index: var(--layer-popover);
+	max-width: 320px;
+	padding: var(--size-4-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-primary);
+	box-shadow: var(--shadow-s);
+	box-sizing: border-box;
+}
+
+.en-word-popover-head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-2);
+}
+
+.en-word-popover-word {
+	color: var(--text-normal);
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold);
+}
+
+.en-word-popover-phonetic {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.en-word-popover-senses {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+}
+
+.en-word-popover-sense {
+	display: flex;
+	gap: var(--size-4-2);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	line-height: var(--line-height-normal);
+}
+
+.en-word-popover-pos {
+	flex-shrink: 0;
+	min-width: 28px;
+	color: var(--text-muted);
+	font-family: var(--font-monospace);
+}
+
+.en-word-popover-gloss {
+	flex: 1;
+	min-width: 0;
+}
+
+.en-word-popover-forms {
+	display: flex;
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-1);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.en-word-popover-forms-label {
+	flex-shrink: 0;
+	color: var(--text-faint);
+}
+
+.en-word-popover-empty {
+	margin: 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
 }
