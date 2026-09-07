@@ -64,6 +64,14 @@ export interface DictionaryEntry {
 	e?: string;
 }
 
+/** 词形反向索引条目：词元 w 的全部变形 f（编码 → 变形词，小写键） */
+export interface FormIndexEntry {
+	/** 词元（原形） */
+	w: string;
+	/** 变形映射：编码（0/p/d/i/3/s/r/t）→ 变形词 */
+	f: Record<string, string>;
+}
+
 /** 选词选项 */
 export interface SelectOptions {
 	/** 考纲标签白名单 */
@@ -80,6 +88,8 @@ export interface BuildOptions extends SelectOptions {
 	outputPath: string;
 	/** 词条总量上限（考纲词优先保留） */
 	maxEntries: number;
+	/** 词形反向索引输出路径（可选；提供时额外产出变形→词元索引） */
+	formsOutputPath?: string;
 }
 
 /** 构建统计 */
@@ -94,6 +104,8 @@ export interface BuildStats {
 	written: number;
 	/** 输出字节数 */
 	bytes: number;
+	/** 词形反向索引条目数（未提供 formsOutputPath 时为 undefined） */
+	formsWritten?: number;
 }
 
 /**
@@ -273,6 +285,60 @@ function isTagged(record: string[], options: SelectOptions): boolean {
 	);
 }
 
+/** 词形编码的规范顺序（同形多编码时取更靠前的编码作为标注） */
+const FORM_CODE_ORDER = ['0', 'p', 'd', 'i', '3', 's', 'r', 't'] as const;
+
+/** 词形编码在规范顺序中的位次（未知编码排到最后） */
+function formCodeRank(code: string): number {
+	const index = FORM_CODE_ORDER.indexOf(code as (typeof FORM_CODE_ORDER)[number]);
+	return index === -1 ? FORM_CODE_ORDER.length : index;
+}
+
+/**
+ * 从词条集合抽取词形反向索引：变形词（小写）→ 词元 + 词形编码。
+ * 已是头词的变形不进入索引（运行时精确命中优先，保持索引精简，
+ * 头词与变形的比较统一小写化）；同一变形对应多个编码时保留规范顺序
+ * 中更靠前的编码（如 decreases 同为三单与复数，保留三单）。
+ * @param entries 词条集合
+ * @param headwords 头词集合（小写）
+ * @returns 反向索引条目（按词条顺序聚合）
+ */
+export function buildFormIndex(
+	entries: DictionaryEntry[],
+	headwords: Set<string>,
+): FormIndexEntry[] {
+	const index: FormIndexEntry[] = [];
+	for (const entry of entries) {
+		if (!entry.e) {
+			continue;
+		}
+		const headwordLower = entry.w.toLowerCase();
+		const forms: Record<string, string> = {};
+		for (const segment of entry.e.split('/')) {
+			const separatorIndex = segment.indexOf(':');
+			if (separatorIndex <= 0) {
+				continue;
+			}
+			const code = segment.slice(0, separatorIndex);
+			const form = segment.slice(separatorIndex + 1).trim().toLowerCase();
+			if (!form || form === headwordLower || headwords.has(form)) {
+				continue;
+			}
+			const existing = forms[form];
+			if (
+				existing === undefined ||
+				formCodeRank(code) < formCodeRank(existing)
+			) {
+				forms[form] = code;
+			}
+		}
+		if (Object.keys(forms).length > 0) {
+			index.push({ w: entry.w, f: forms });
+		}
+	}
+	return index;
+}
+
 /**
  * 执行构建：读 CSV → 去重 → 选词 → 截断 → 组装 → 写 JSONL。
  * @param options 构建选项
@@ -328,12 +394,28 @@ export async function buildDictionary(
 	mkdirSync(dirname(options.outputPath), { recursive: true });
 	writeFileSync(options.outputPath, text, 'utf8');
 
+	// 词形反向索引：变形词 → 词元（供运行时归一化查询，如 improves → improve）。
+	// 排除集合用「选中词条」的头词（而非全量 CSV 头词）——未入选词元的变形
+	// 也应入索引，保证查询能落到已收录词元上。
+	let formsWritten: number | undefined;
+	if (options.formsOutputPath) {
+		const headwords = new Set(entries.map((entry) => entry.w.toLowerCase()));
+		const formIndex = buildFormIndex(entries, headwords);
+		const formsText =
+			formIndex.map((item) => JSON.stringify(item)).join('\n') +
+			(formIndex.length > 0 ? '\n' : '');
+		mkdirSync(dirname(options.formsOutputPath), { recursive: true });
+		writeFileSync(options.formsOutputPath, formsText, 'utf8');
+		formsWritten = formIndex.length;
+	}
+
 	return {
 		totalRows: records.length,
 		selected: selected.length,
 		duplicatesDropped,
 		written: entries.length,
 		bytes: Buffer.byteLength(text, 'utf8'),
+		formsWritten,
 	};
 }
 
@@ -359,9 +441,14 @@ async function main(): Promise<void> {
 		process.cwd(),
 		process.argv[3] ?? 'src/data/dictionary.txt',
 	);
+	const formsOutputPath = resolve(
+		process.cwd(),
+		process.argv[4] ?? 'src/data/dictionary-forms.txt',
+	);
 	const stats = await buildDictionary({
 		csvPath,
 		outputPath,
+		formsOutputPath,
 		maxEntries: 50_000,
 		tags: DEFAULT_TAGS,
 		bncLimit: 30_000,
@@ -369,7 +456,10 @@ async function main(): Promise<void> {
 	});
 	console.log(
 		`词典构建完成：读取 ${stats.totalRows} 行，去重丢弃 ${stats.duplicatesDropped}，` +
-			`选中 ${stats.selected} 词，写出 ${stats.written} 条（${(stats.bytes / 1024 / 1024).toFixed(2)} MB）`,
+			`选中 ${stats.selected} 词，写出 ${stats.written} 条（${(stats.bytes / 1024 / 1024).toFixed(2)} MB）` +
+			(stats.formsWritten !== undefined
+				? `，词形索引 ${stats.formsWritten} 条`
+				: ''),
 	);
 	console.log(`输出文件：${outputPath}`);
 }

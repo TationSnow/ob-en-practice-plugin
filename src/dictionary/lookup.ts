@@ -11,6 +11,7 @@ import type {
 	DictionaryEntry,
 	DictionaryMatch,
 	DictionaryMatchType,
+	FormIndexEntry,
 	SearchOptions,
 } from './types';
 
@@ -358,4 +359,120 @@ export function formatWordForms(exchange: string): string {
 		)
 		.map((part) => `${WORD_FORM_LABELS[part.code]} ${part.value}`)
 		.join(' · ');
+}
+
+/**
+ * 解析词形反向索引文本（JSONL，每行一个词元聚合条目）。
+ * 单行损坏时跳过该行，不拖垮整库（产物由构建脚本保证质量）。
+ * @param text JSONL 文本
+ * @returns 反向索引条目数组
+ */
+export function parseFormIndexText(text: string): FormIndexEntry[] {
+	const entries: FormIndexEntry[] = [];
+	for (const line of text.split('\n')) {
+		const trimmed = line.trim();
+		if (!trimmed) {
+			continue;
+		}
+		try {
+			entries.push(JSON.parse(trimmed) as FormIndexEntry);
+		} catch {
+			// 跳过损坏行：数据由构建脚本生成，此处为防御性兜底
+			continue;
+		}
+	}
+	return entries;
+}
+
+/**
+ * 把反向索引条目构建为「变形词（小写）→ 词元与词形编码」查询表。
+ * 同一变形出现在多个词元下时保留首个（构建侧已做头词排除，重复极少）。
+ * @param entries 反向索引条目
+ * @returns 查询表
+ */
+export function buildFormLookup(
+	entries: FormIndexEntry[],
+): Map<string, { word: string; code: string }> {
+	const lookup = new Map<string, { word: string; code: string }>();
+	for (const entry of entries) {
+		// 数据格式：f 为「变形词 → 词形编码」（与构建脚本输出一致）
+		for (const [form, code] of Object.entries(entry.f)) {
+			const key = form.toLowerCase();
+			if (!lookup.has(key)) {
+				lookup.set(key, { word: entry.w, code });
+			}
+		}
+	}
+	return lookup;
+}
+
+/** 词形编码 → 悬浮卡标注文案（如 3 → 三单形式） */
+const FORM_CODE_LABELS: Record<string, string> = {
+	'0': '原形',
+	p: '过去式形式',
+	d: '过去分词形式',
+	i: '现在分词形式',
+	'3': '三单形式',
+	s: '复数形式',
+	r: '比较级形式',
+	t: '最高级形式',
+};
+
+/**
+ * 把词形编码转为展示标注（如 3 → 三单形式）；未知编码回退为「词形变化」。
+ * @param code 词形编码
+ * @returns 标注文案
+ */
+export function formatFormLabel(code: string): string {
+	return FORM_CODE_LABELS[code] ?? '词形变化';
+}
+
+/**
+ * 带词形归一化的查询链（词典查询总入口的完整实现）：
+ * 1. 中文查询 → 释义匹配（原逻辑）；
+ * 2. 英文查询存在精确命中 → 直接返回（原逻辑）；
+ * 3. 英文查询精确未命中 → 查词形反向索引：命中词元后取其完整词条，
+ *    标注 formOf（词元与词形编码）置于结果首位，原查询的非精确候选
+ *    （如模糊命中）去重后跟随。
+ * @param query 用户输入
+ * @param entries 词典条目
+ * @param formLookup 词形反向查询表（变形词小写 → 词元与编码）
+ * @param options 查询选项
+ * @returns 候选列表
+ */
+export function searchWithFormIndex(
+	query: string,
+	entries: DictionaryEntry[],
+	formLookup: Map<string, { word: string; code: string }>,
+	options: SearchOptions = {},
+): DictionaryMatch[] {
+	const normalized = query.trim();
+	const matches = searchDictionary(query, entries, options);
+	if (isChineseQuery(normalized)) {
+		return matches;
+	}
+	if (matches.some((match) => match.matchType === 0)) {
+		return matches;
+	}
+	const form = formLookup.get(normalized.toLowerCase());
+	if (!form) {
+		return matches;
+	}
+	const headwordMatches = searchEnglishEntries(form.word, entries, options);
+	const headwordExact = headwordMatches.find(
+		(match) => match.matchType === 0,
+	);
+	if (!headwordExact) {
+		return matches;
+	}
+	const limit = options.limit ?? DEFAULT_MATCH_LIMIT;
+	const annotated: DictionaryMatch = {
+		...headwordExact,
+		formOf: { word: form.word, code: form.code },
+	};
+	// 原候选中与词元相同的条目已由标注候选替代，去重后跟随其后
+	const rest = matches.filter(
+		(match) => match.word.toLowerCase() !== form.word.toLowerCase(),
+	);
+	return [annotated, ...rest].slice(0, limit);
 }

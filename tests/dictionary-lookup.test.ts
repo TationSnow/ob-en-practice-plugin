@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
+	buildFormLookup,
+	formatFormLabel,
 	formatWordForms,
 	isChineseQuery,
 	parseDictionaryText,
+	parseFormIndexText,
 	searchDictionary,
 	searchEnglishEntries,
 	searchInEntries,
+	searchWithFormIndex,
 } from '../src/dictionary/lookup';
-import type { DictionaryEntry } from '../src/dictionary/types';
+import type {
+	DictionaryEntry,
+	FormIndexEntry,
+} from '../src/dictionary/types';
 
 /** 构造词典条目 */
 function createEntry(
@@ -86,6 +93,14 @@ const FIXTURES: DictionaryEntry[] = [
 		s: [{ p: 'v.', z: '是, 表示, 在' }],
 		b: 2,
 		e: 'p:was/3:is/d:been/i:being',
+	}),
+	createEntry({
+		w: 'improve',
+		s: [
+			{ p: 'vt.', z: '改良, 提高...的价值, 改善, 利用' },
+			{ p: 'vi.', z: '变得更好, 增加' },
+		],
+		b: 903,
 	}),
 ];
 
@@ -292,5 +307,86 @@ describe('formatWordForms（词形变换展示）', () => {
 	it('空串与未知编码安全处理', () => {
 		expect(formatWordForms('')).toBe('');
 		expect(formatWordForms('x:unknown')).toBe('');
+	});
+});
+
+describe('词形归一化（formOf 查询链）', () => {
+	/** 构造词形反向索引条目 */
+	function createFormEntry(
+		w: string,
+		f: Record<string, string>,
+	): FormIndexEntry {
+		return { w, f };
+	}
+
+	const FORM_FIXTURES: FormIndexEntry[] = [
+		// 数据格式：f 为「变形词 → 词形编码」（与构建脚本输出一致）
+		createFormEntry('improve', {
+			improves: '3',
+			improved: 'p',
+			improving: 'i',
+		}),
+		createFormEntry('go', { went: 'p', gone: 'd' }),
+	];
+
+	it('parseFormIndexText 逐行解析并跳过空行与损坏行', () => {
+		const text = [
+			JSON.stringify({ w: 'improve', f: { '3': 'improves' } }),
+			'',
+			'{broken',
+		].join('\n');
+		const entries = parseFormIndexText(text);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.w).toBe('improve');
+	});
+
+	it('buildFormLookup 以小写变形词为键映射到词元与编码', () => {
+		const lookup = buildFormLookup(FORM_FIXTURES);
+		expect(lookup.get('improves')).toEqual({ word: 'improve', code: '3' });
+		expect(lookup.get('went')).toEqual({ word: 'go', code: 'p' });
+		expect(lookup.get('WENT')).toBeUndefined();
+	});
+
+	it('formatFormLabel 输出词形标注文案，未知编码回退', () => {
+		expect(formatFormLabel('3')).toBe('三单形式');
+		expect(formatFormLabel('p')).toBe('过去式形式');
+		expect(formatFormLabel('0')).toBe('原形');
+		expect(formatFormLabel('zz')).toBe('词形变化');
+	});
+
+	it('英文精确命中时直接返回，不走归一化', () => {
+		const lookup = buildFormLookup(FORM_FIXTURES);
+		const matches = searchWithFormIndex('happy', FIXTURES, lookup);
+		expect(matches[0]?.word).toBe('happy');
+		expect(matches[0]?.formOf).toBeUndefined();
+	});
+
+	it('变形词查询归一化到词元：释义来自词元并带词形标注', () => {
+		const lookup = buildFormLookup(FORM_FIXTURES);
+		const matches = searchWithFormIndex('improves', FIXTURES, lookup);
+
+		expect(matches[0]?.word).toBe('improve');
+		expect(matches[0]?.formOf).toEqual({ word: 'improve', code: '3' });
+		// 释义为词元 improve 的完整释义
+		expect(matches[0]?.senses[0]?.z).toContain('改良');
+		// 原查询的模糊候选（同样是 improve）已被标注候选去重替代
+		expect(matches.filter((match) => match.word === 'improve')).toHaveLength(
+			1,
+		);
+	});
+
+	it('不规则变形同样归一化（went → go）', () => {
+		const lookup = buildFormLookup(FORM_FIXTURES);
+		// fixture 无 go 词条 → 词元释义缺失时回退原结果
+		const matches = searchWithFormIndex('went', FIXTURES, lookup);
+		// go 不在 FIXTURES 中，取不到词元词条 → 返回原（空）结果
+		expect(matches).toEqual([]);
+	});
+
+	it('中文查询不受词形索引影响', () => {
+		const lookup = buildFormLookup(FORM_FIXTURES);
+		const matches = searchWithFormIndex('政府', FIXTURES, lookup);
+		expect(matches[0]?.word).toBe('government');
+		expect(matches[0]?.formOf).toBeUndefined();
 	});
 });

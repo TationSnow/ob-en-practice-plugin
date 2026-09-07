@@ -214,3 +214,38 @@ describe('toggleWordPopover（点击兜底）', () => {
 		expect(popovers()).toHaveLength(1);
 	});
 });
+
+describe('词形归一化标注（悬浮卡）', () => {
+	it('命中 formOf 时渲染词形来源标注行', () => {
+		const { target, popovers } = createTarget();
+		searchDictionaryMock.mockReturnValue([
+			{
+				word: 'improve',
+				phonetic: "im'pru:v",
+				senses: [{ p: 'vt.', z: '改良, 改善' }],
+				matchType: 0,
+				formOf: { word: 'improve', code: '3' },
+			},
+		]);
+
+		showWordPopover(target as unknown as HTMLElement, 'improves');
+
+		const formOf = popovers()[0]?.queryAll((el) =>
+			el.classes.has('en-word-popover-formof'),
+		)[0];
+		expect(formOf?.text).toBe('improve 的三单形式');
+	});
+
+	it('无 formOf 时不渲染标注行（原形词/通配命中）', () => {
+		const { target, popovers } = createTarget();
+		searchDictionaryMock.mockReturnValue([createHappyMatch()]);
+
+		showWordPopover(target as unknown as HTMLElement, 'happy');
+
+		expect(
+			popovers()[0]?.queryAll((el) =>
+				el.classes.has('en-word-popover-formof'),
+			),
+		).toHaveLength(0);
+	});
+});

@@ -426,3 +426,37 @@ describe('查词卡片朗读喇叭', () => {
 		expect(speakEnglishMock).toHaveBeenCalledWith('forget');
 	});
 });
+
+describe('词形归一化标注（查词卡）', () => {
+	it('命中 formOf 时渲染词形来源标注行', () => {
+		const { container, findButton } = openPanel();
+		searchDictionaryMock.mockReturnValue([
+			{
+				word: 'improve',
+				senses: [{ p: 'vt.', z: '改良, 改善' }],
+				matchType: 0,
+				formOf: { word: 'improve', code: '3' },
+			},
+		]);
+		const input = findInput(container);
+		input.value = 'improves';
+		findButton('查询')?.trigger('click');
+
+		const formOf = container.queryAll((el) =>
+			el.classes.has('en-dict-formof'),
+		)[0];
+		expect(formOf?.text).toBe('improve 的三单形式');
+	});
+
+	it('无 formOf 时不渲染标注行', () => {
+		const { container, findButton } = openPanel();
+		searchDictionaryMock.mockReturnValue([createForgetMatch()]);
+		const input = findInput(container);
+		input.value = 'forget';
+		findButton('查询')?.trigger('click');
+
+		expect(
+			container.queryAll((el) => el.classes.has('en-dict-formof')),
+		).toHaveLength(0);
+	});
+});

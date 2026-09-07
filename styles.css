@@ -1345,3 +1345,16 @@
 	color: var(--text-muted);
 	font-size: var(--font-ui-small);
 }
+
+/* ===== 词形归一化标注（变形词命中词元时） ===== */
+.en-word-popover-formof,
+.en-dict-formof {
+	color: var(--text-accent);
+	font-size: var(--font-ui-small);
+}
+.en-word-popover-formof {
+	margin-bottom: var(--size-4-1);
+}
+.en-dict-formof {
+	margin-bottom: var(--size-4-1);
+}

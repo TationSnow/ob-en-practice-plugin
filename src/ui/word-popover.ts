@@ -11,7 +11,7 @@
  */
 
 import { searchDictionary } from '../dictionary/dictionary-data';
-import { formatWordForms } from '../dictionary/lookup';
+import { formatFormLabel, formatWordForms } from '../dictionary/lookup';
 import type { DictionaryMatch } from '../dictionary/types';
 import { speakEnglish } from '../speech/tts';
 import { createIconButton } from './controls';
@@ -125,11 +125,19 @@ export function showWordPopover(
 	};
 }
 
-/** 渲染词典命中详情：音标 + 词性释义组 + 词形变换 */
+/** 渲染词典命中详情：词形标注 + 音标 + 词性释义组 + 词形变换 */
 function renderMatchDetails(
 	popover: HTMLElement,
 	match: DictionaryMatch,
 ): void {
+	// 词形归一化标注：查询词是某词元的变形时，说明来源关系
+	if (match.formOf) {
+		popover
+			.createDiv('en-word-popover-formof')
+			.setText(
+				`${match.formOf.word} 的${formatFormLabel(match.formOf.code)}`,
+			);
+	}
 	if (match.phonetic) {
 		popover
 			.createSpan('en-word-popover-phonetic')

@@ -1,6 +1,10 @@
 import { Notice } from 'obsidian';
 import { searchDictionary } from '../dictionary/dictionary-data';
-import { DEFAULT_MATCH_LIMIT, formatWordForms } from '../dictionary/lookup';
+import {
+	DEFAULT_MATCH_LIMIT,
+	formatFormLabel,
+	formatWordForms,
+} from '../dictionary/lookup';
 import type { DictionaryMatch } from '../dictionary/types';
 import { speakEnglish } from '../speech/tts';
 import { copyTextToClipboard } from '../utils/clipboard';
@@ -189,6 +193,14 @@ function renderMatchRow(
 	});
 
 	const sensesEl = row.createDiv('en-dict-senses');
+	// 词形归一化标注：查询词是某词元的变形时，说明来源关系
+	if (match.formOf) {
+		row
+			.createDiv('en-dict-formof')
+			.setText(
+				`${match.formOf.word} 的${formatFormLabel(match.formOf.code)}`,
+			);
+	}
 	for (const sense of match.senses) {
 		const senseRow = sensesEl.createDiv('en-dict-sense');
 		if (sense.p) {
