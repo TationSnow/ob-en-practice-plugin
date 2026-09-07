@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
 	buildDictionary,
 	buildEntry,
+	buildFormIndex,
 	parseCsv,
 	parseSenseGroups,
 	shouldInclude,
@@ -204,5 +205,70 @@ describe('buildDictionary', () => {
 		expect(lines[0]?.f).toBe(747);
 		// government 的噪声释义组已被过滤
 		expect(lines[1]?.s).toEqual([{ p: 'n.', z: '政府, 内阁' }]);
+	});
+});
+
+describe('buildFormIndex（词形反向索引）', () => {
+	it('从 exchange 字段抽取变形→编码映射并按头词聚合', () => {
+		const entries: DictionaryEntry[] = [
+			{
+				w: 'improve',
+				s: [{ p: 'vt.', z: '改善' }],
+				e: 'd:improved/i:improving/3:improves/p:improved',
+			},
+			{
+				w: 'decrease',
+				s: [{ p: 'n.', z: '减少' }],
+				e: 'd:decreased/3:decreases/s:decreases',
+			},
+		];
+		const index = buildFormIndex(entries, new Set(['improve', 'decrease']));
+
+		const improve = index.find((item) => item.w === 'improve');
+		// 以变形词为键、编码为值；同一变形多编码（improved 同为过去式/过去分词）取规范顺序靠前者
+		expect(improve?.f).toEqual({
+			improved: 'p',
+			improving: 'i',
+			improves: '3',
+		});
+		const decrease = index.find((item) => item.w === 'decrease');
+		// decreases 同为三单与复数，保留规范顺序中更靠前的三单
+		expect(decrease?.f.decreases).toBe('3');
+		expect(decrease?.f.decreased).toBe('d');
+	});
+
+	it('已是头词的变形不进入索引（运行时精确命中优先）', () => {
+		const entries: DictionaryEntry[] = [
+			{
+				w: 'study',
+				s: [{ p: 'v.', z: '学习' }],
+				e: '3:studies/p:studied/i:studying',
+			},
+		];
+		// studies 自己也是头词（如某些词库行独立存在）
+		const index = buildFormIndex(entries, new Set(['study', 'studies']));
+		const study = index.find((item) => item.w === 'study');
+		expect(study?.f.studies).toBeUndefined();
+		expect(study?.f.studied).toBe('p');
+		expect(study?.f.studying).toBe('i');
+	});
+
+	it('排除判定大小写不敏感（头词/变形均按小写比较）', () => {
+		const entries: DictionaryEntry[] = [
+			{
+				w: 'STUDY',
+				s: [{ p: 'v.', z: '学习' }],
+				e: '3:studies/p:studied',
+			},
+			{
+				w: 'Improves',
+				s: [{ p: 'v.', z: '改善' }],
+				e: '0:improves',
+			},
+		];
+		// improves 自身是头词（Improves）→ 排除；studies 不在头词集合 → 保留
+		const index = buildFormIndex(entries, new Set(['study', 'improves']));
+		expect(index.map((item) => item.w)).toEqual(['STUDY']);
+		expect(index[0]?.f.studies).toBe('3');
 	});
 });

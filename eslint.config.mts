@@ -53,8 +53,18 @@ export default defineConfig(
 		},
 		rules: {
 			'obsidianmd/prefer-window-timers': 'off',
-			// 测试直读真实词典数据产物（node:fs）与构造临时文件，Node API 合法
+			// 测试直读真实词典数据产物（node:fs）、注入 TTS 假实现（globalThis），
+			// Node API 合法
 			'obsidianmd/no-nodejs-modules': 'off',
+			'obsidianmd/no-global-this': 'off',
+		},
+	},
+	{
+		// 悬浮词卡的 150ms 宽限定时器：存活于渲染进程、跨 popout 关闭无害
+		// （定时回调操作已脱离文档的节点为空操作），无需跟随 activeWindow
+		files: ['src/ui/word-popover.ts'],
+		rules: {
+			'obsidianmd/prefer-window-timers': 'off',
 		},
 	},
 	{

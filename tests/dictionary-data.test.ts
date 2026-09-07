@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+	buildFormLookup,
 	parseDictionaryText,
+	parseFormIndexText,
 	searchEnglishEntries,
 	searchInEntries,
+	searchWithFormIndex,
 } from '../src/dictionary/lookup';
 
 /**
@@ -93,5 +96,45 @@ describe('真实词典数据黄金用例', () => {
 		const elapsed = Date.now() - startedAt;
 		expect(matches.length).toBeLessThanOrEqual(20);
 		expect(elapsed).toBeLessThan(2000);
+	});
+});
+
+describe('词形反向索引黄金用例（真实数据）', () => {
+	const formsPath = fileURLToPath(
+		new URL('../src/data/dictionary-forms.txt', import.meta.url),
+	);
+	const formEntries = parseFormIndexText(readFileSync(formsPath, 'utf8'));
+	const formLookup = buildFormLookup(formEntries);
+
+	it('improves 归一化到 improve（三单）并带词形标注', () => {
+		const matches = searchWithFormIndex('improves', entries, formLookup);
+		expect(matches[0]?.word).toBe('improve');
+		expect(matches[0]?.formOf).toEqual({ word: 'improve', code: '3' });
+		expect(matches[0]?.senses[0]?.z).toContain('改良');
+	});
+
+	it('went 归一化到 go（不规则过去式）', () => {
+		const matches = searchWithFormIndex('went', entries, formLookup);
+		expect(matches[0]?.word).toBe('go');
+		expect(matches[0]?.formOf?.code).toBe('p');
+	});
+
+	it('decreases 归一化到 decrease', () => {
+		const matches = searchWithFormIndex('decreases', entries, formLookup);
+		expect(matches[0]?.word).toBe('decrease');
+		expect(matches[0]?.formOf?.code).toBe('3');
+	});
+
+	it('原形词精确命中不受词形索引影响', () => {
+		const matches = searchWithFormIndex('improve', entries, formLookup);
+		expect(matches[0]?.word).toBe('improve');
+		expect(matches[0]?.formOf).toBeUndefined();
+	});
+
+	it('词形归一化性能冒烟：索引构建加查询在毫秒级完成', () => {
+		const startedAt = Date.now();
+		const lookup = buildFormLookup(parseFormIndexText(readFileSync(formsPath, 'utf8')));
+		searchWithFormIndex('improves', entries, lookup);
+		expect(Date.now() - startedAt).toBeLessThan(2000);
 	});
 });

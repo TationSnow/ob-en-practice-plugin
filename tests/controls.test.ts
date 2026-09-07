@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { StubElement, type StubElementLike } from './setup';
 import {
+	createIconButton,
 	createSegmentedControl,
 	createTabBar,
 } from '../src/ui/controls';
@@ -236,5 +238,27 @@ describe('createTabBar', () => {
 
 		expect(onChange).toHaveBeenCalledWith(1);
 		expect(tabBarEl?.children[1]?.focused).toBe(true);
+	});
+});
+
+describe('createIconButton（compact 变体）', () => {
+	it('compact 选项附加紧凑样式类，默认变体不受影响', () => {
+		const container = new StubElement();
+		const compact = createIconButton(
+			container as unknown as HTMLElement,
+			'volume-2',
+			'播放单词语音',
+			() => {},
+			{ compact: true },
+		) as unknown as StubElementLike;
+		const normal = createIconButton(
+			container as unknown as HTMLElement,
+			'copy',
+			'复制',
+			() => {},
+		) as unknown as StubElementLike;
+
+		expect(compact.classes.has('en-icon-button--compact')).toBe(true);
+		expect(normal.classes.has('en-icon-button--compact')).toBe(false);
 	});
 });

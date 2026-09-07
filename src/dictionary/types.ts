@@ -62,10 +62,23 @@ export interface DictionaryMatch {
 	exchange?: string;
 	/** 匹配类型 */
 	matchType: DictionaryMatchType;
+	/**
+	 * 词形归一化来源：查询词是词元 formOf.word 的变形（编码 formOf.code）。
+	 * 存在时本候选展示的是词元释义，调用方应渲染词形标注。
+	 */
+	formOf?: { word: string; code: string };
 }
 
 /** 查询选项 */
 export interface SearchOptions {
 	/** 返回候选上限（默认 20） */
 	limit?: number;
+}
+
+/** 词形反向索引条目（构建产物 JSONL 的结构）：词元 w 的全部变形 f（编码 → 变形词） */
+export interface FormIndexEntry {
+	/** 词元（原形） */
+	w: string;
+	/** 变形映射：编码（0/p/d/i/3/s/r/t）→ 变形词 */
+	f: Record<string, string>;
 }

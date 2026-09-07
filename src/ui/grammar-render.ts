@@ -7,10 +7,18 @@ import {
 } from '../utils/grammar-highlight';
 import { findComponentSpan, splitSentences } from '../utils/sentence';
 import {
+	createIconButton,
+} from './controls';
+import {
 	createResultCard,
 	createResultSection,
 	createTag,
 } from './sections';
+import {
+	attachWordTokenEvents,
+	hideWordPopover,
+} from './word-popover';
+import { speakEnglish } from '../speech/tts';
 
 /** 成分类型对应的 CSS 类名 */
 export const COMPONENT_CSS_CLASS: Record<ComponentType, string> = {
@@ -47,6 +55,8 @@ export function renderHighlightedSentence(
 	components: SentenceComponent[],
 	clauses: { text: string; level: number }[],
 ): void {
+	// 重新渲染时关闭遗留的悬浮词卡
+	hideWordPopover();
 	container.empty();
 
 	// 成分数组按原句顺序全局消费，避免成分跨句时重复或错位
@@ -108,13 +118,6 @@ function renderSentenceSegment(
 	return componentIndex;
 }
 
-/** 追加普通文本（标点、空白等非成分内容） */
-function appendPlainText(container: HTMLElement, text: string): void {
-	if (!text) return;
-	const span = container.createSpan();
-	span.setText(text);
-}
-
 /** 追加红色从句括号 */
 function appendClauseBracket(container: HTMLElement, bracket: string): void {
 	const span = container.createSpan();
@@ -130,20 +133,56 @@ function appendClauseLevel(container: HTMLElement, level: number): void {
 	sup.setText(String(level));
 }
 
-/** 渲染基础文本片段，带可选的颜色 class */
+/** 英文单词词元（保留撇号缩写，如 don't） */
+const WORD_TOKEN_PATTERN = /[A-Za-z]+(?:'[A-Za-z]+)?/g;
+
+/**
+ * 把文本拆分为词元渲染：每个英文单词包裹为可交互的词元 span
+ * （悬浮/点击展示释义卡片），标点与空白原样保留。
+ * 重建后的文本内容与原句完全一致。
+ * @param container 父容器
+ * @param text 文本片段
+ */
+function appendWordTokens(container: HTMLElement, text: string): void {
+	let cursor = 0;
+	for (const match of text.matchAll(WORD_TOKEN_PATTERN)) {
+		const start = match.index ?? 0;
+		if (start > cursor) {
+			appendRawSegment(container, text.slice(cursor, start));
+		}
+		const word = match[0];
+		const token = container.createSpan();
+		token.addClass('en-word-token');
+		token.setAttr('data-word', word.toLowerCase());
+		token.setText(word);
+		attachWordTokenEvents(token, word);
+		cursor = start + word.length;
+	}
+	if (cursor < text.length) {
+		appendRawSegment(container, text.slice(cursor));
+	}
+}
+
+/** 追加非单词片段（空白、标点），不参与悬浮交互 */
+function appendRawSegment(container: HTMLElement, text: string): void {
+	if (!text) return;
+	const span = container.createSpan();
+	span.setText(text);
+}
+
+/** 渲染基础文本片段，带可选的颜色 class；文本按词元拆分以支持悬浮词卡 */
 function renderBaseText(
 	container: HTMLElement,
 	text: string,
 	baseClass: string | null,
 ): void {
 	if (!text) return;
+	const span = container.createSpan();
 	if (baseClass) {
-		const span = container.createSpan();
 		span.addClass(baseClass);
-		span.setText(text);
-		return;
 	}
-	appendPlainText(container, text);
+	// 词元子 span 继承外层成分着色
+	appendWordTokens(span, text);
 }
 
 /**
@@ -188,10 +227,10 @@ function renderItems(
 			appendClauseBracket(container, ')');
 			appendClauseLevel(container, item.level);
 		} else if (item.kind === 'verb') {
-			// 谓语动词核心词直接上紫色，不再递归解析
+			// 谓语动词核心词直接上紫色，不再递归解析；同样拆词支持悬浮
 			const verbSpan = container.createSpan();
 			verbSpan.addClass(COMPONENT_CSS_CLASS.predicate);
-			verbSpan.setText(text.slice(item.start, item.end));
+			appendWordTokens(verbSpan, text.slice(item.start, item.end));
 		} else if (item.component) {
 			const childRendering = resolveComponentRendering(
 				item.component,
@@ -343,8 +382,24 @@ export function renderGrammarResult(
 		.createEl('p', { text: result.translation })
 		.addClass('en-translation-text');
 
-	// 带成分与从句标注的句子展示
-	const sentenceSection = createResultSection(card, '句子成分标注');
+	// 带成分与从句标注的句子展示；标题旁喇叭朗读整句
+	const sentenceSection = createResultSection(
+		card,
+		'句子成分标注',
+		{
+			headingExtra: (heading) => {
+				createIconButton(
+					heading,
+					'volume-2',
+					'播放句子语音',
+					() => {
+						speakEnglish(originalSentence || result.sentence);
+					},
+					{ compact: true },
+				);
+			},
+		},
+	);
 	renderHighlightedSentence(
 		sentenceSection,
 		originalSentence || result.sentence,

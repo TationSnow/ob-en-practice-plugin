@@ -8,16 +8,21 @@ import {
 	type StubElementLike,
 } from './setup';
 
-// 词典查询与剪贴板替换为桩实现（数据模块依赖 esbuild text loader，测试不导入）
-const { searchDictionaryMock, copyTextToClipboardMock } = vi.hoisted(() => ({
-	searchDictionaryMock: vi.fn(),
-	copyTextToClipboardMock: vi.fn(),
-}));
+// 词典查询、剪贴板与语音朗读替换为桩实现（数据模块依赖 esbuild text loader，测试不导入）
+const { searchDictionaryMock, copyTextToClipboardMock, speakEnglishMock } =
+	vi.hoisted(() => ({
+		searchDictionaryMock: vi.fn(),
+		copyTextToClipboardMock: vi.fn(),
+		speakEnglishMock: vi.fn(),
+	}));
 vi.mock('../src/dictionary/dictionary-data', () => ({
 	searchDictionary: searchDictionaryMock,
 }));
 vi.mock('../src/utils/clipboard', () => ({
 	copyTextToClipboard: copyTextToClipboardMock,
+}));
+vi.mock('../src/speech/tts', () => ({
+	speakEnglish: speakEnglishMock,
 }));
 
 /** 构造一个候选词（forget） */
@@ -100,6 +105,7 @@ beforeEach(() => {
 	searchDictionaryMock.mockReturnValue([]);
 	copyTextToClipboardMock.mockReset();
 	copyTextToClipboardMock.mockResolvedValue(undefined);
+	speakEnglishMock.mockReset();
 });
 
 describe('createDictionaryPanel', () => {
@@ -399,6 +405,58 @@ describe('写作查词面板（双向查询改造）', () => {
 
 		expect(
 			container.queryAll((el) => el.classes.has('en-dict-forms')),
+		).toHaveLength(0);
+	});
+});
+
+describe('查词卡片朗读喇叭', () => {
+	it('单词标题旁渲染朗读按钮，点击朗读单词', () => {
+		const { container, findButton } = openPanel();
+		searchDictionaryMock.mockReturnValue([createForgetMatch()]);
+		const input = findInput(container);
+		input.value = 'forget';
+		findButton('查询')?.trigger('click');
+
+		const speakButton = container
+			.queryAll((el) => el.tag === 'button')
+			.find((el) => el.attrs['aria-label'] === '播放 forget 语音');
+		expect(speakButton).toBeDefined();
+
+		speakButton?.trigger('click');
+		expect(speakEnglishMock).toHaveBeenCalledWith('forget');
+	});
+});
+
+describe('词形归一化标注（查词卡）', () => {
+	it('命中 formOf 时渲染词形来源标注行', () => {
+		const { container, findButton } = openPanel();
+		searchDictionaryMock.mockReturnValue([
+			{
+				word: 'improve',
+				senses: [{ p: 'vt.', z: '改良, 改善' }],
+				matchType: 0,
+				formOf: { word: 'improve', code: '3' },
+			},
+		]);
+		const input = findInput(container);
+		input.value = 'improves';
+		findButton('查询')?.trigger('click');
+
+		const formOf = container.queryAll((el) =>
+			el.classes.has('en-dict-formof'),
+		)[0];
+		expect(formOf?.text).toBe('improve 的三单形式');
+	});
+
+	it('无 formOf 时不渲染标注行', () => {
+		const { container, findButton } = openPanel();
+		searchDictionaryMock.mockReturnValue([createForgetMatch()]);
+		const input = findInput(container);
+		input.value = 'forget';
+		findButton('查询')?.trigger('click');
+
+		expect(
+			container.queryAll((el) => el.classes.has('en-dict-formof')),
 		).toHaveLength(0);
 	});
 });

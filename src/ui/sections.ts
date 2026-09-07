@@ -44,18 +44,32 @@ export function createCollapsibleSection(
 	};
 }
 
+/** 结果区块的可选配置 */
+export interface ResultSectionOptions {
+	/**
+	 * 标题渲染完成后的回调：用于在标题旁追加动作元素（如播放按钮），
+	 * 调用方拿到 h4 标题元素后自行追加，保持区块结构与样式单一来源。
+	 */
+	headingExtra?: (headingEl: HTMLElement) => void;
+}
+
 /**
  * 创建一个结果展示区域（带标题的只读区块）。
  * @param container 父容器
- * @param title 标题
+ * @param title 区块标题
+ * @param options 可选配置（标题旁动作）
  * @returns 内容容器
  */
 export function createResultSection(
 	container: HTMLElement,
 	title: string,
+	options: ResultSectionOptions = {},
 ): HTMLElement {
 	const section = container.createDiv('en-result-section');
-	section.createEl('h4', { text: title });
+	const heading = section.createEl('h4');
+	heading.setText(title);
+	// 标题旁动作（如播放按钮）：由调用方追加，保持与标题同行
+	options.headingExtra?.(heading);
 	const content = section.createDiv('en-result-content');
 	return content;
 }
