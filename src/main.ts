@@ -9,6 +9,7 @@ import {
 	EnglishPracticeView,
 	VIEW_TYPE,
 } from './views/english-practice-view';
+import { VocabularyBookService, setVocabularyService } from './vocabulary/service';
 import { trackDomSelection } from './utils/editor';
 
 export default class EnPracticePlugin extends Plugin {
@@ -17,6 +18,9 @@ export default class EnPracticePlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+
+		// 装配生词本服务：深层 UI（悬浮词卡等）通过全局装配点获取
+		setVocabularyService(new VocabularyBookService(this));
 
 		// 注册右侧面板视图
 		this.registerView(

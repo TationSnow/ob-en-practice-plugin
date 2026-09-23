@@ -1,22 +1,34 @@
 import type EnPracticePlugin from '../main';
-import { RANDOM_THEME } from '../utils/writing-options';
+import {
+	normalizeThemeName,
+	RANDOM_THEME,
+} from '../utils/writing-options';
 import { createIconButton } from './controls';
 import { openThemeManager } from './theme-modal';
+
+/** 主题候选 datalist 的元素 id（输入框通过 list 属性关联） */
+const THEME_DATALIST_ID = 'en-writing-theme-options';
 
 /** 主题下拉控件控制器 */
 export interface ThemeSelectControl {
 	getValue(): string;
 	setValue(value: string): void;
+	/** 重建候选列表（主题增删改后调用）；手动输入的当前值保留 */
+	refresh(): void;
 }
 
 /**
- * 创建主题下拉与“管理主题”按钮。
- * 首项固定为“随机”，其余为插件设置中的自定义主题。
+ * 创建主题组合输入框：文本输入 + datalist 候选。
+ * 兼顾下拉选择与手动输入：候选为自定义主题（datalist 联想），
+ * 用户也可直接键入任意主题（不强制在候选内）。
+ * “随机”不出现在候选中、也不作为默认文本填入输入框——datalist 会按
+ * 输入框已有文本过滤候选，若默认填入“随机”，点开下拉只剩一个选项；
+ * 随机的语义改由“留空”表达（placeholder 提示），取值时空白归一为随机。
  * @param container 父容器
  * @param plugin 插件实例
- * @param initialValue 初始选中值
- * @param onChange 选中值变化回调
- * @returns 主题下拉控制器
+ * @param initialValue 初始值
+ * @param onChange 输入值变化回调（空白归一为“随机”后回传）
+ * @returns 主题输入控件控制器
  */
 export function createThemeSelect(
 	container: HTMLElement,
@@ -29,34 +41,39 @@ export function createThemeSelect(
 	label.addClass('en-field-label');
 	label.setAttr('for', 'en-writing-theme');
 
-	const select = row.createEl('select', {
-		attr: { id: 'en-writing-theme', 'aria-label': '题目主题' },
+	// 组合输入框：list 关联 datalist，聚焦/输入时弹出候选下拉
+	const input = row.createEl('input', {
+		attr: {
+			type: 'text',
+			id: 'en-writing-theme',
+			list: THEME_DATALIST_ID,
+			'aria-label': '题目主题',
+			placeholder: '选择或输入主题，留空随机',
+		},
 	});
-	select.addClass('en-select-input');
+	input.addClass('en-text-input');
+
+	const datalist = row.createEl('datalist', {
+		attr: { id: THEME_DATALIST_ID },
+	});
 
 	let currentValue = initialValue;
 
 	const refresh = (): void => {
 		const themes = plugin.settings.writingThemes;
-		const options = [RANDOM_THEME, ...themes];
-		const previous = currentValue;
-		select.empty();
-		for (const theme of options) {
-			const option = select.createEl('option', { text: theme });
-			option.value = theme;
+		datalist.empty();
+		for (const theme of themes) {
+			datalist.createEl('option', { text: theme }).setAttr('value', theme);
 		}
-		if (options.includes(previous)) {
-			select.value = previous;
-			currentValue = previous;
-		} else {
-			select.value = RANDOM_THEME;
-			currentValue = RANDOM_THEME;
-		}
+		// 重建候选不影响输入框：手动输入的主题不在候选中也原样保留；
+		// 随机语义以留空表达，输入框不显示“随机”文本
+		input.value = currentValue === RANDOM_THEME ? '' : currentValue;
 	};
 
-	select.addEventListener('change', () => {
-		currentValue = select.value;
-		onChange?.(currentValue);
+	input.addEventListener('input', () => {
+		currentValue = normalizeThemeName(input.value);
+		// 回调值与 getValue 语义一致：空白归一为“随机”
+		onChange?.(currentValue || RANDOM_THEME);
 	});
 
 	createIconButton(row, 'settings-2', '管理主题', () => {
@@ -65,11 +82,12 @@ export function createThemeSelect(
 
 	refresh();
 	return {
-		getValue: () => currentValue,
+		getValue: () => normalizeThemeName(currentValue) || RANDOM_THEME,
 		setValue: (value: string) => {
 			currentValue = value;
-			select.value = value;
+			input.value = value === RANDOM_THEME ? '' : value;
 		},
+		refresh,
 	};
 }
 

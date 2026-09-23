@@ -11,6 +11,7 @@ import { copyTextToClipboard } from '../utils/clipboard';
 import { paginate, type PaginationResult } from '../utils/pagination';
 import { createActionButton, createIconButton } from './controls';
 import { createCollapsibleSection, createTag } from './sections';
+import { createVocabularyToggleButton } from './vocabulary-controls';
 
 /** 每页大小可选项（默认 5 条，用户定夺） */
 export const PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
@@ -167,6 +168,16 @@ function renderMatchRow(
 	createIconButton(head, 'volume-2', `播放 ${match.word} 语音`, () => {
 		speakEnglish(match.word);
 	}, { compact: true });
+	// 生词本收录切换：与喇叭同款紧凑按钮，已收录时自动切换为移除态；
+	// 收录时携带词典快照（音标/释义），按钮状态由写作页统一订阅刷新
+	createVocabularyToggleButton(head, match.word, {
+		compact: true,
+		getDraft: () => ({
+			word: match.word,
+			phonetic: match.phonetic,
+			senses: match.senses,
+		}),
+	});
 	if (match.phonetic) {
 		head.createSpan('en-dict-phonetic').setText(`/${match.phonetic}/`);
 	}

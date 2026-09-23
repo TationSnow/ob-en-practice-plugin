@@ -6,6 +6,7 @@ import {
 } from 'obsidian';
 import type EnPracticePlugin from './main';
 import type { ModelProfile } from './settings/models';
+import type { VocabularyEntry } from './vocabulary/types';
 import { openModelManager } from './ui/model-modal';
 
 /** 插件设置项 */
@@ -32,6 +33,8 @@ export interface EnPracticeSettings {
 	proxyUrl: string;
 	/** 翻译写作的自定义主题列表，首项“随机”为固定内置选项 */
 	writingThemes: string[];
+	/** 生词本词条列表（增删改查见面板顶部“生词本”入口） */
+	vocabulary: VocabularyEntry[];
 }
 
 export const DEFAULT_SETTINGS: EnPracticeSettings = {
@@ -43,6 +46,7 @@ export const DEFAULT_SETTINGS: EnPracticeSettings = {
 	proxyEnabled: false,
 	proxyUrl: 'http://127.0.0.1:7897',
 	writingThemes: [],
+	vocabulary: [],
 };
 
 /**

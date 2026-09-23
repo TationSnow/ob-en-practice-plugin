@@ -133,6 +133,11 @@ export const translationQuestionSchema = z.object({
 	chinese: z.string().describe('中文语句'),
 	hint: z.string().describe('提示信息，包含目标语法点'),
 	targetGrammar: z.string().describe('目标语法点说明'),
+	// 可选：仅当提供了生词本目标单词时模型才回显；弱模型未输出时不拒收
+	targetWords: z
+		.array(z.string())
+		.optional()
+		.describe('本次题目要求用到的英文单词列表（生词本目标单词）'),
 });
 
 export type TranslationQuestion = z.infer<typeof translationQuestionSchema>;

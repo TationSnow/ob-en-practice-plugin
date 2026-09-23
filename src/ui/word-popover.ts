@@ -15,6 +15,7 @@ import { formatFormLabel, formatWordForms } from '../dictionary/lookup';
 import type { DictionaryMatch } from '../dictionary/types';
 import { speakEnglish } from '../speech/tts';
 import { createIconButton } from './controls';
+import { createVocabularyToggleButton } from './vocabulary-controls';
 
 /** 词卡宽度（与样式保持一致，用于水平钳制计算） */
 const POPOVER_WIDTH = 320;
@@ -84,18 +85,36 @@ export function showWordPopover(
 		`top:${top}px;left:${left}px;width:${POPOVER_WIDTH}px;`,
 	);
 
-	// 标题行：单词 + 朗读喇叭（TTS 不依赖词典，未收录也可朗读）
+	// 词义查询先行（内存同步操作）：收录按钮需要词典命中的词元与释义快照，
+	// 渲染结果与原顺序（标题行 → 释义）保持一致
+	const matches = searchDictionary(word, {
+		limit: options.limit ?? 1,
+	});
+	const exact = matches.find((match) => match.matchType === 0);
+	// 收录目标：精确命中收录词元（如悬浮 "sat" 收录 "sit"），未命中收录原词
+	const vocabWord = exact?.word ?? word;
+
+	// 标题行：单词 + 朗读喇叭 + 生词本收录（TTS 不依赖词典，未收录也可朗读；
+	// 收录按钮与喇叭同款紧凑样式，已收录时自动切换为移除态）
 	const head = popover.createDiv('en-word-popover-head');
 	head.createSpan('en-word-popover-word').setText(word);
 	createIconButton(head, 'volume-2', '播放单词语音', () => {
 		speakEnglish(word);
 	}, { compact: true });
+	const vocabToggle = createVocabularyToggleButton(head, vocabWord, {
+		compact: true,
+		observe: true,
+		getDraft: () =>
+			exact
+				? {
+						word: exact.word,
+						phonetic: exact.phonetic,
+						senses: exact.senses,
+					}
+				: { word },
+	});
 
 	// 词义：仅精确命中视为词典收录；模糊候选不作为词义来源
-	const matches = searchDictionary(word, {
-		limit: options.limit ?? 1,
-	});
-	const exact = matches.find((match) => match.matchType === 0);
 	if (exact) {
 		renderMatchDetails(popover, exact);
 	} else {
@@ -121,6 +140,8 @@ export function showWordPopover(
 	activeWord = word;
 	activeCleanup = () => {
 		doc.removeEventListener('keydown', keyHandler);
+		// 收录按钮的内部订阅随词卡关闭一并释放
+		vocabToggle.cleanup();
 		popover.remove();
 	};
 }

@@ -1358,3 +1358,184 @@
 .en-dict-formof {
 	margin-bottom: var(--size-4-1);
 }
+
+/* ===== 生词本：已收录按钮高亮态 ===== */
+/* 双类选择器与 compact 变体同特异性策略，确保压过主题的按钮默认色；
+   已收录态用主题色提示"点击移除"，与未收录的静默灰色区分 */
+.en-icon-button.en-icon-button--active {
+	color: var(--interactive-accent);
+}
+
+.en-icon-button.en-icon-button--active:hover {
+	color: var(--interactive-accent-hover);
+}
+
+/* ===== 生词本：写作页选词 chips ===== */
+.en-vocab-chips {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-1);
+	margin-bottom: var(--size-4-2);
+}
+
+/* 未选词占位：弱化展示，不干扰主流程 */
+.en-vocab-chips-empty {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+/* 单个选词 chip：单词 + 含义摘要 + 移除按钮 */
+.en-vocab-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	max-width: 100%;
+	padding: var(--size-4-1) var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-secondary);
+	font-size: var(--font-ui-small);
+	box-sizing: border-box;
+}
+
+.en-vocab-chip-word {
+	color: var(--text-normal);
+	font-weight: var(--font-medium);
+}
+
+.en-vocab-chip-meaning {
+	color: var(--text-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* 随机选词数量输入框：窄数字框，与随机按钮同行 */
+.en-vocab-count-input {
+	width: 64px;
+	padding: var(--size-4-1) var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	box-sizing: border-box;
+}
+
+/* ===== 生词本管理弹窗 ===== */
+.en-vocab-search-bar {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-3);
+}
+
+.en-vocab-search {
+	flex: 1;
+	min-width: 0;
+}
+
+.en-vocab-count {
+	flex-shrink: 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.en-vocab-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	margin-bottom: var(--size-4-3);
+	max-height: 320px;
+	overflow-y: auto;
+	box-sizing: border-box;
+}
+
+.en-vocab-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-1) var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	box-sizing: border-box;
+}
+
+.en-vocab-info {
+	flex: 1;
+	min-width: 0;
+}
+
+.en-vocab-head {
+	display: flex;
+	align-items: baseline;
+	gap: var(--size-4-2);
+}
+
+.en-vocab-word {
+	color: var(--text-normal);
+	font-weight: var(--font-medium);
+}
+
+.en-vocab-phonetic {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+/* 收录日期右对齐，弱化展示 */
+.en-vocab-date {
+	margin-left: auto;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.en-vocab-meaning {
+	margin-top: var(--size-2-1);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.en-vocab-actions {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: var(--size-2-2);
+}
+
+/* 编辑态：单词与备注输入框纵向排列 */
+.en-vocab-edit-fields {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+}
+
+.en-vocab-edit-fields input {
+	padding: var(--size-4-1) var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	box-sizing: border-box;
+}
+
+.en-vocab-edit-fields input:focus {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 3px var(--background-modifier-border-focus);
+	outline: none;
+}
+
+.en-vocab-empty {
+	margin: 0;
+	padding: var(--size-4-2);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	line-height: 1.5;
+}

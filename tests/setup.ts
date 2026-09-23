@@ -138,6 +138,12 @@ import { vi } from 'vitest';
 			this.listeners[type]?.(event);
 		}
 
+		/** 聚焦桩（真实 DOM 的 focus 是空操作，仅保证可调用） */
+		focus(): void {}
+
+		/** 设置选区范围桩（textarea 光标插入用，仅保证可调用） */
+		setSelectionRange(): void {}
+
 		/** 按谓词查找子孙元素（测试用） */
 		queryAll(predicate: (el: StubElement) => boolean): StubElement[] {
 			const found: StubElement[] = [];
@@ -146,6 +152,25 @@ import { vi } from 'vitest';
 				found.push(...child.queryAll(predicate));
 			}
 			return found;
+		}
+
+		/**
+		 * 简易选择器查询（测试用）。
+		 * 仅支持 'tag'、'.class'、'tag.class' 三种形式，
+		 * 覆盖 refreshVocabularyButtons 等批量 DOM 查询需求；
+		 * 与真实 DOM 一致：只查子孙元素，不包含自身。
+		 */
+		querySelectorAll(selector: string): StubElement[] {
+			const match = /^([a-zA-Z-]*)(?:\.([a-zA-Z][a-zA-Z-]*))?$/.exec(
+				selector,
+			);
+			if (!match) return [];
+			const tag = match[1];
+			const cls = match[2];
+			return this.queryAll(
+				(el) =>
+					(!tag || el.tag === tag) && (!cls || el.classes.has(cls)),
+			);
 		}
 	}
 	return { StubElement };

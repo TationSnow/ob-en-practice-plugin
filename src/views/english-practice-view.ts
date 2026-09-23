@@ -11,6 +11,7 @@ import {
 	type ModelQuickSelectControl,
 } from '../ui/model-controls';
 import { createEmptyState } from '../ui/sections';
+import { createVocabularyBookButton } from '../ui/vocabulary-modal';
 import { renderGrammarAnalysis } from '../ui/grammar-tab';
 import { renderWritingPractice } from '../ui/writing-tab';
 import { renderDebugPanel } from '../ui/debug-panel';
@@ -124,8 +125,13 @@ export class EnglishPracticeView extends ItemView {
 		const brandIcon = brand.createSpan('en-panel-icon');
 		setIcon(brandIcon, 'languages');
 		brand.createSpan('en-panel-title').setText('英语练习');
-		// 模型快速切换：切换后由插件通知机制刷新选项，不清空已输入内容
-		this.modelQuickSelect = createModelQuickSelect(header, this.plugin);
+		// 模型快速切换：切换后由插件通知机制刷新选项，不清空已输入内容；
+		// 生词本入口位于模型下拉与管理接入口按钮之间（插槽注入，与业务解耦）
+		this.modelQuickSelect = createModelQuickSelect(header, this.plugin, {
+			beforeManagerButton: (container) => {
+				createVocabularyBookButton(container, this.plugin);
+			},
+		});
 		createIconButton(header, 'settings', '打开插件设置', () => {
 			this.openSettings();
 		});
